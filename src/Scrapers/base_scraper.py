@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
-from src.models import Tool
+from src.Models.model_tool import Tool
 
 
 class BaseScraper(ABC):

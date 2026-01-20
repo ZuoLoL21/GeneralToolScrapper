@@ -1,19 +1,9 @@
-"""Pydantic models for GeneralToolScraper."""
-
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field, computed_field
 
-
-def _utc_now() -> datetime:
-    """Return current UTC time as timezone-aware datetime."""
-    return datetime.now(UTC)
-
-
-"""
-Tool Stuff
-"""
+from src.Models.common import _utc_now
 
 
 class SourceType(str, Enum):
@@ -181,76 +171,3 @@ class Tool(BaseModel):
         """Set canonical name to tool name if not provided."""
         if not self.identity.canonical_name:
             self.identity.canonical_name = self.name.lower()
-
-
-"""
-Category stuff
-"""
-
-
-class CategoryStats(BaseModel):
-    """Statistics for a category used in relative scoring."""
-
-    category: str
-    tool_count: int = Field(ge=0)
-    avg_downloads: float = Field(ge=0)
-    avg_stars: float = Field(ge=0)
-    max_downloads: int = Field(ge=0)
-    max_stars: int = Field(ge=0)
-
-
-class GlobalStats(BaseModel):
-    """Global statistics across all tools."""
-
-    total_tools: int = Field(ge=0)
-    avg_downloads: float = Field(ge=0)
-    avg_stars: float = Field(ge=0)
-    max_downloads: int = Field(ge=0)
-    max_stars: int = Field(ge=0)
-
-
-class EvalContext(BaseModel):
-    """Context provided to evaluators for stateless evaluation.
-
-    Contains all external data needed for evaluation:
-    - Category statistics for relative scoring
-    - Global distributions for normalization
-    - Config thresholds from user preferences
-    """
-
-    category_stats: CategoryStats | None = Field(
-        default=None, description="Statistics for the tool's category"
-    )
-    global_stats: GlobalStats | None = Field(
-        default=None, description="Global statistics across all tools"
-    )
-
-    # Config thresholds
-    min_downloads: int = Field(default=1000, description="Minimum downloads threshold")
-    min_stars: int = Field(default=100, description="Minimum stars threshold")
-    max_days_since_update: int = Field(default=365, description="Max staleness in days")
-
-    # Scoring weights
-    weight_popularity: float = Field(default=0.25, ge=0, le=1)
-    weight_security: float = Field(default=0.35, ge=0, le=1)
-    weight_maintenance: float = Field(default=0.25, ge=0, le=1)
-    weight_trust: float = Field(default=0.15, ge=0, le=1)
-
-
-class ScrapeResult(BaseModel):
-    """Result of a scrape operation."""
-
-    source: SourceType
-    tools_found: int = Field(ge=0)
-    tools_scraped: int = Field(ge=0)
-    errors: list[str] = Field(default_factory=list)
-    started_at: datetime
-    completed_at: datetime | None = None
-
-    @computed_field
-    @property
-    def success_rate(self) -> float:
-        """Calculate success rate of scraping."""
-        if self.tools_found == 0:
-            return 0.0
-        return self.tools_scraped / self.tools_found * 100

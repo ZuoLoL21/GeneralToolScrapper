@@ -4,8 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.models import (
-    EvalContext,
+from src.Models.model_tool import (
     Identity,
     Maintainer,
     MaintainerType,
@@ -44,18 +43,4 @@ def sample_tool() -> Tool:
         tags=["database", "sql", "relational", "postgres"],
         primary_category="databases",
         primary_subcategory="relational",
-    )
-
-
-@pytest.fixture
-def sample_eval_context() -> EvalContext:
-    """Create a sample evaluation context for testing."""
-    return EvalContext(
-        min_downloads=1000,
-        min_stars=100,
-        max_days_since_update=365,
-        weight_popularity=0.25,
-        weight_security=0.35,
-        weight_maintenance=0.25,
-        weight_trust=0.15,
     )

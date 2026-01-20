@@ -1,14 +1,11 @@
-"""Tests for Pydantic models."""
+"""Tests for Pydantic models."""  # noqa: N999
 
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
 
-from src.models import (
-    CategoryStats,
-    EvalContext,
-    GlobalStats,
+from src.Models.model_tool import (
     Identity,
     Lifecycle,
     Maintainer,
@@ -16,7 +13,6 @@ from src.models import (
     Maintenance,
     Metrics,
     ScoreBreakdown,
-    ScrapeResult,
     Security,
     SecurityStatus,
     SourceType,
@@ -260,124 +256,3 @@ class TestTool:
         data = tool.model_dump()
         assert data["id"] == "github:prometheus/prometheus"
         assert data["source"] == "github"
-
-
-class TestCategoryStats:
-    """Tests for the CategoryStats model."""
-
-    def test_creation(self) -> None:
-        stats = CategoryStats(
-            category="databases",
-            tool_count=50,
-            avg_downloads=1_000_000,
-            avg_stars=5000,
-            max_downloads=1_000_000_000,
-            max_stars=50000,
-        )
-        assert stats.category == "databases"
-        assert stats.tool_count == 50
-
-
-class TestGlobalStats:
-    """Tests for the GlobalStats model."""
-
-    def test_creation(self) -> None:
-        stats = GlobalStats(
-            total_tools=500,
-            avg_downloads=500_000,
-            avg_stars=2000,
-            max_downloads=1_000_000_000,
-            max_stars=100000,
-        )
-        assert stats.total_tools == 500
-
-
-class TestEvalContext:
-    """Tests for the EvalContext model."""
-
-    def test_default_values(self) -> None:
-        ctx = EvalContext()
-        assert ctx.min_downloads == 1000
-        assert ctx.min_stars == 100
-        assert ctx.max_days_since_update == 365
-        assert ctx.weight_popularity == 0.25
-        assert ctx.weight_security == 0.35
-        assert ctx.weight_maintenance == 0.25
-        assert ctx.weight_trust == 0.15
-
-    def test_custom_weights(self) -> None:
-        ctx = EvalContext(
-            weight_popularity=0.3,
-            weight_security=0.3,
-            weight_maintenance=0.2,
-            weight_trust=0.2,
-        )
-        assert ctx.weight_popularity == 0.3
-        assert ctx.weight_security == 0.3
-
-    def test_with_stats(self) -> None:
-        ctx = EvalContext(
-            category_stats=CategoryStats(
-                category="databases",
-                tool_count=50,
-                avg_downloads=1_000_000,
-                avg_stars=5000,
-                max_downloads=1_000_000_000,
-                max_stars=50000,
-            ),
-            global_stats=GlobalStats(
-                total_tools=500,
-                avg_downloads=500_000,
-                avg_stars=2000,
-                max_downloads=1_000_000_000,
-                max_stars=100000,
-            ),
-        )
-        assert ctx.category_stats is not None
-        assert ctx.category_stats.category == "databases"
-        assert ctx.global_stats is not None
-        assert ctx.global_stats.total_tools == 500
-
-
-class TestScrapeResult:
-    """Tests for the ScrapeResult model."""
-
-    def test_creation(self) -> None:
-        now = datetime.now(UTC)
-        result = ScrapeResult(
-            source=SourceType.DOCKER_HUB,
-            tools_found=100,
-            tools_scraped=95,
-            started_at=now - timedelta(minutes=5),
-            completed_at=now,
-        )
-        assert result.tools_found == 100
-        assert result.tools_scraped == 95
-
-    def test_success_rate(self) -> None:
-        result = ScrapeResult(
-            source=SourceType.DOCKER_HUB,
-            tools_found=100,
-            tools_scraped=80,
-            started_at=datetime.now(UTC),
-        )
-        assert result.success_rate == 80.0
-
-    def test_success_rate_zero_found(self) -> None:
-        result = ScrapeResult(
-            source=SourceType.DOCKER_HUB,
-            tools_found=0,
-            tools_scraped=0,
-            started_at=datetime.now(UTC),
-        )
-        assert result.success_rate == 0.0
-
-    def test_with_errors(self) -> None:
-        result = ScrapeResult(
-            source=SourceType.GITHUB,
-            tools_found=50,
-            tools_scraped=45,
-            errors=["Rate limit exceeded", "Timeout on tool X"],
-            started_at=datetime.now(UTC),
-        )
-        assert len(result.errors) == 2

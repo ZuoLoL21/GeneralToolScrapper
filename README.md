@@ -516,6 +516,32 @@ API responses are cached aggressively to reduce rate limit impact:
 
 </details>
 
+<details>
+<summary>Classification Models (click to expand)</summary>
+
+```python
+# Result of classifying a tool (from LLM or cache)
+class Classification:
+    primary_category: str
+    primary_subcategory: str
+    secondary_categories: list[str] = []
+
+# Manual override entry with reason
+class ClassificationOverride:
+    primary_category: str
+    primary_subcategory: str
+    secondary_categories: list[str] = []
+    reason: str  # Explanation for the override
+
+# Cache entry wrapping classification with metadata
+class ClassificationCacheEntry:
+    classification: Classification
+    classified_at: datetime
+    source: str  # "llm" | "override" | "manual"
+```
+
+</details>
+
 ### Scoring Algorithm Details
 
 ```
