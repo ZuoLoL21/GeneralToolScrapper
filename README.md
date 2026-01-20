@@ -389,16 +389,124 @@ dev = [
 
 ## Roadmap
 
-### Phase 1: Docker Hub (Current)
+### Phase 1: Docker Hub MVP
 
-- [ ] Basic Docker Hub API client
-- [ ] Search and pagination handling
-- [ ] Rate limiting implementation
-- [ ] Data model and storage (JSON initially)
-- [ ] Basic CLI for scraping
-- [ ] Trivy integration for security scanning
-- [ ] Quality score calculation
-- [ ] Filtering and ranking
+#### 1. Foundation
+
+- [ ] **Project scaffolding**
+  - [ ] Set up `pyproject.toml` with dependencies (httpx, pydantic, typer, rich)
+  - [ ] Configure ruff/mypy for linting and type checking
+  - [ ] Create `.env.example` with all configuration variables
+  - [ ] Set up pytest with async support
+
+- [ ] **Data model (`Models.py`)**
+  - [ ] Define `Tool` pydantic model matching the schema in README
+  - [ ] Define `Metrics`, `Security`, `Maintainer`, `Identity` sub-models
+  - [ ] Define `EvalContext` for stateless evaluator pattern
+  - [ ] Add model validation and serialization tests
+
+#### 2. Docker Hub Scraper
+
+- [ ] **API client (`Scrapers/DockerHub.py`)**
+  - [ ] Implement `BaseScraper` abstract class with uniform contract
+  - [ ] Docker Hub search endpoint integration
+  - [ ] Pagination handling (cursor-based)
+  - [ ] Image details fetching (tags, description, metrics)
+  - [ ] Parse and normalize response to `Tool` model
+
+- [ ] **Resilience**
+  - [ ] Rate limiting with exponential backoff on 429s
+  - [ ] Request caching with configurable TTL (24h default)
+  - [ ] Scrape queue persistence for recovery across restarts
+  - [ ] Configurable delay between requests (`SCRAPE_DELAY_MS`)
+
+#### 3. Storage Layer
+
+- [ ] **File-based storage (`Storage/FileManager.py`)**
+  - [ ] JSON persistence for scraped tools
+  - [ ] Separate raw data from derived scores
+  - [ ] Load/save with atomic writes
+  - [ ] Query by ID, category, canonical name
+
+#### 4. Evaluators
+
+- [ ] **Evaluator framework**
+  - [ ] Implement `BaseEvaluator` protocol (stateless, pure functions)
+  - [ ] Create `Registry.py` to wire evaluators and produce final scores
+
+- [ ] **Individual evaluators**
+  - [ ] `Popularity.py` — Softmax normalization, category-relative scoring
+  - [ ] `Maintenance.py` — Update recency vs frequency logic
+  - [ ] `Trust.py` — Official/verified/company/user tier scoring
+  - [ ] `Security.py` — Vulnerability severity weighting (placeholder until Trivy)
+
+- [ ] **Composite scoring**
+  - [ ] Implement weighted score formula (0.25/0.35/0.25/0.15)
+  - [ ] Support score recalculation with different weights
+
+#### 5. Security Scanning
+
+- [ ] **Trivy integration**
+  - [ ] Subprocess wrapper for Trivy CLI
+  - [ ] Parse JSON output into `Security` model
+  - [ ] Lazy mode: scan on-demand or top-N tools
+  - [ ] Cache scan results with 7-day TTL
+  - [ ] Handle missing/unavailable Trivy gracefully
+
+#### 6. CLI (`cli.py`)
+
+- [ ] **Scrape commands**
+  - [ ] `gts scrape --source docker_hub`
+  - [ ] `--force-refresh` to bypass cache
+  - [ ] Progress bar with rich
+
+- [ ] **Query commands**
+  - [ ] `gts search <query>` — Full-text search
+  - [ ] `gts top --category <cat> --limit N`
+  - [ ] `gts list --full` — All tools with scores
+
+- [ ] **Export**
+  - [ ] `gts export --format json --output <file>`
+
+#### 7. Filtering & Ranking
+
+- [ ] **Auto-exclusion logic**
+  - [ ] Below `MIN_DOWNLOADS` threshold
+  - [ ] Stale beyond `MAX_DAYS_SINCE_UPDATE`
+  - [ ] Deprecated flag detection
+  - [ ] Critical vulnerability filter (configurable)
+
+- [ ] **Inclusion priority**
+  - [ ] Prefer official images
+  - [ ] Prefer verified publishers
+  - [ ] Rank by quality score within category
+
+#### 8. Testing & Validation
+
+- [ ] Unit tests for scraper parsing logic
+- [ ] Unit tests for each evaluator
+- [ ] Integration tests with mocked Docker Hub responses
+- [ ] E2E test: scrape → evaluate → store → query pipeline
+
+#### MVP Checkpoint
+
+Phase 1 is complete when you can run:
+```bash
+gts scrape --source docker_hub
+gts top --category databases --limit 5
+gts export --format json --output tools.json
+```
+
+And get scored, filtered results with security data for top tools.
+
+---
+
+### Future Phases
+
+- **Phase 2:** GitHub scraper integration
+- **Phase 3:** Helm Charts (Artifact Hub) scraper
+- **Phase 4:** Tool disambiguation and canonical grouping
+- **Phase 5:** Web UI
 
 ### Future Considerations
 
