@@ -7,29 +7,34 @@ A tool aggregation system that discovers, evaluates, and catalogs useful develop
 ## Architecture
 
 ```
-Scrapers (source-specific scrapers)
-- DockerHub
-- HelmCharts
-- Github
-- BaseScraper.py (abstract base scraper)
+Scrapers/
+├── DockerHub.py        # Docker Hub API scraper
+├── HelmCharts.py       # Artifact Hub scraper
+├── Github.py           # GitHub API scraper
+└── BaseScraper.py      # Abstract base class defining scraper contract
 
-Evaluators
-- Popularity
-- Security
-- Maintenace
-- Trust
-- Evaluator.py (an evaluator strings the four evaluators together)
+Evaluators/
+├── Popularity.py       # Downloads, stars, usage normalization
+├── Security.py         # Vulnerability scoring, Trivy results
+├── Maintenance.py      # Update frequency, recency scoring
+├── Trust.py            # Publisher verification, community reputation
+└── Registry.py         # Wires evaluators together, produces final scores
 
-Storage
-- FileManager.py
-- DatabaseManagers
-    - FalkorDB.py (problems for later)
+Storage/
+├── FileManager.py      # JSON/filesystem persistence
+└── DatabaseManagers/
+    └── FalkorDB.py     # Graph DB support (future)
 
-cli.py
-Models.py
-config.toml
+cli.py                  # Typer-based CLI orchestration
+Models.py               # Pydantic models (Tool, Metrics, etc.)
+config.toml             # Runtime configuration
 ```
 General architecture (if no .py, then it means a directory)
+
+**Why atomic evaluators?** Each evaluator is a pure function that can be:
+- Run independently for partial evaluations
+- Tested in isolation
+- Swapped or weighted differently per user preference
 
 Scrapers should return a uniform model defined in Models
 
@@ -48,51 +53,170 @@ The system conceptually separates:
 
 ```python
 {
-    "id": str,                    # Unique identifier
+    # ─────────────────────────────────────────────────────────────────────────
+    # IDENTIFICATION
+    # ─────────────────────────────────────────────────────────────────────────
+    "id": str,
+    # Unique identifier for this specific artifact.
+    # Format: "{source}:{namespace}/{name}" (e.g., "docker_hub:library/postgres")
+
+    "identity": {
+        "canonical_name": str,
+        # The normalized tool name used to group related artifacts.
+        # Example: "postgres" groups docker_hub:library/postgres, github:postgres/postgres, helm:bitnami/postgresql
+
+        "aliases": list[str],
+        # Alternative names users might search for.
+        # Example: ["postgresql", "psql", "pg"]
+
+        "variants": list[str],
+        # IDs of other artifacts representing the same tool from different sources.
+        # Example: ["docker_hub:bitnami/postgresql", "helm:bitnami/postgresql"]
+    },
+
     "name": str,
-    "source": str,                # "docker_hub" | "github" | "helm" | "web"
+    # Display name as it appears on the source (e.g., "postgres", "nginx")
+
+    "source": str,
+    # Origin platform. One of: "docker_hub" | "github" | "helm" | "web"
+
     "source_url": str,
+    # Direct link to the tool on its source platform.
+    # Example: "https://hub.docker.com/_/postgres"
+
     "description": str,
+    # Short description from the source. May be empty or truncated.
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MAINTAINER INFO
+    # ─────────────────────────────────────────────────────────────────────────
     "maintainer": {
         "name": str,
-        "type": str,              # "official" | "company" | "user"
-        "verified": bool
+        # Publisher name or organization (e.g., "Docker Official Images", "bitnami")
+
+        "type": str,
+        # Publisher classification. One of: "official" | "company" | "user"
+        # - "official": Platform-verified official image (e.g., Docker Official Images)
+        # - "company": Organization account (e.g., bitnami, hashicorp)
+        # - "user": Individual contributor account
+
+        "verified": bool,
+        # Whether the publisher has platform verification badge.
+        # True for Docker Verified Publishers, GitHub Verified orgs, etc.
     },
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # RAW METRICS (always persisted for recomputation)
+    # ─────────────────────────────────────────────────────────────────────────
     "metrics": {
         "downloads": int,
-        "stars": int,             # Hearts/Stars/etc
-        "usage_amount": int,      # Pull/Forks/Views/etc
+        # Total download count. Meaning varies by source:
+        # - Docker Hub: total pulls
+        # - GitHub: release download count or clone count
+        # - Helm: install count from Artifact Hub
+
+        "stars": int,
+        # Community appreciation metric:
+        # - Docker Hub: star count
+        # - GitHub: stargazer count
+        # - Helm: stars on Artifact Hub
+
+        "usage_amount": int,
+        # Secondary usage indicator:
+        # - Docker Hub: pull count (same as downloads)
+        # - GitHub: fork count
+        # - Helm: not applicable (set to 0)
     },
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SECURITY
+    # ─────────────────────────────────────────────────────────────────────────
     "security": {
-        "status": str,            # "ok" | "vulnerable" | "unknown"
+        "status": str,
+        # Current security posture. One of: "ok" | "vulnerable" | "unknown"
+        # - "ok": Scanned, no critical/high vulnerabilities
+        # - "vulnerable": Has critical or high severity CVEs
+        # - "unknown": Not yet scanned (treated as light penalty, not zero)
+
         "trivy_scan_date": datetime | None,
+        # When the last Trivy scan was performed. None if never scanned.
+
         "vulnerabilities": {
-            "critical": int,
-            "high": int,
-            "medium": int,
-            "low": int
+            "critical": int,  # CVSS 9.0-10.0 - Immediate action required
+            "high": int,      # CVSS 7.0-8.9  - Should be addressed soon
+            "medium": int,    # CVSS 4.0-6.9  - Address in normal cycle
+            "low": int,       # CVSS 0.1-3.9  - Informational
         },
-        "is_safe": bool
+
+        "is_safe": bool,
+        # Computed flag: True if status="ok" or (status="unknown" AND no known CVEs)
     },
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MAINTENANCE
+    # ─────────────────────────────────────────────────────────────────────────
     "maintenance": {
         "created_at": datetime,
+        # When the artifact was first published on the source platform.
+
         "last_updated": datetime,
+        # Most recent update timestamp (image push, release, commit).
+
         "update_frequency_days": int,
-        "is_deprecated": bool
+        # Average days between updates (computed from release history).
+        # Used to contextualize staleness: a tool that updates yearly
+        # being 2 months stale is fine; one that updates daily is concerning.
+
+        "is_deprecated": bool,
+        # Explicitly marked as deprecated by maintainer or platform.
     },
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # CATEGORIZATION
+    # ─────────────────────────────────────────────────────────────────────────
     "tags": list[str],
-    "primary_category": str,          # e.g., "databases", "monitoring", "ci-cd"
-    "primary_subcategory": str,       # e.g., "relational", "metrics", "logging"
-    "secondary_categories": list[str], # For tools spanning multiple domains
-    "lifecycle": str,                 # "active" | "stable" | "legacy" | "experimental"
-    "quality_score": float,           # Computed score 0-100
+    # Raw tags from source (Docker labels, GitHub topics, Helm keywords).
+    # Preserved for re-categorization and search.
+
+    "taxonomy_version": str,
+    # Version of the categorization taxonomy used (e.g., "v1.0").
+    # Allows re-running categorization when taxonomy evolves.
+
+    "primary_category": str,
+    # Top-level functional category.
+    # Examples: "databases", "monitoring", "ci-cd", "networking", "security"
+
+    "primary_subcategory": str,
+    # Specific function within the category.
+    # Examples: "relational", "document", "metrics", "logging", "service-mesh"
+
+    "secondary_categories": list[str],
+    # Additional categories for multi-purpose tools.
+    # Example: Loki might be ["monitoring/logging", "observability/tracing"]
+
+    "lifecycle": str,
+    # Project maturity stage. One of: "experimental" | "active" | "stable" | "legacy"
+    # - "experimental": Early stage, API may change
+    # - "active": Under active development
+    # - "stable": Production-ready, mature
+    # - "legacy": Maintained but superseded by newer alternatives
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # DERIVED SCORES (recomputed from raw metrics)
+    # ─────────────────────────────────────────────────────────────────────────
+    "quality_score": float,
+    # Weighted composite score from 0-100. Higher is better.
+    # Computed as weighted sum of component scores (see algorithm below).
+
     "score_breakdown": {
-        "popularity": float,
-        "security": float,
-        "maintenance": float,
-        "trust": float
+        "popularity": float,   # 0-100, relative to category peers
+        "security": float,     # 0-100, based on vulnerability severity
+        "maintenance": float,  # 0-100, based on update recency and frequency
+        "trust": float,        # 0-100, based on publisher verification and reputation
     },
-    "scraped_at": datetime
+
+    "scraped_at": datetime,
+    # When this record was last fetched from the source API.
 }
 ```
 
