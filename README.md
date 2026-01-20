@@ -75,12 +75,209 @@ monitoring/
 
 ### Auto-Categorization
 
-Categories are generated from:
-1. Tags from Docker Hub / GitHub topics
-2. Keyword matching in descriptions
-3. Known tool mappings (curated seed list)
+Tools are automatically categorized using a local LLM (via Ollama) that classifies each tool into a fixed taxonomy based on its name, description, and tags.
 
-Fallback when tags are missing: curated mappings → keyword extraction → manual override file.
+#### Why LLM-Based Classification?
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Static mappings** | Deterministic, no dependencies | Manual curation, doesn't scale |
+| **Tag/keyword matching** | Simple, fast | Brittle, misses nuance |
+| **LLM classification** | Handles nuance, scales to any tool | Requires local LLM |
+
+LLM classification provides the best balance: it handles tools the system has never seen before, understands context (e.g., distinguishing "postgres" the database from "postgres-api" a REST wrapper), and requires no manual curation. Using Ollama keeps inference local and free.
+
+#### Taxonomy
+
+The system uses a fixed two-level taxonomy. The LLM must select from this predefined list:
+
+```
+databases/
+├── relational      # SQL databases (postgres, mysql, mariadb)
+├── document        # Document stores (mongodb, couchdb)
+├── key-value       # Key-value stores (redis, memcached, etcd)
+├── graph           # Graph databases (neo4j, dgraph)
+├── time-series     # Time-series databases (influxdb, timescaledb)
+└── search          # Search engines (elasticsearch, meilisearch)
+
+monitoring/
+├── metrics         # Metrics collection (prometheus, telegraf)
+├── logging         # Log aggregation (loki, fluentd, elasticsearch)
+├── tracing         # Distributed tracing (jaeger, zipkin)
+├── visualization   # Dashboards (grafana, kibana)
+└── alerting        # Alert management (alertmanager)
+
+web/
+├── server          # Web servers (nginx, apache, caddy)
+├── proxy           # Reverse proxies and API gateways (traefik, kong)
+└── load-balancer   # Load balancers (haproxy, envoy)
+
+messaging/
+├── queue           # Message queues (rabbitmq, activemq)
+├── streaming       # Event streaming (kafka, redpanda)
+└── pubsub          # Pub/sub systems (nats, redis-pubsub)
+
+ci-cd/
+├── build           # Build tools (jenkins, drone, gitlab-runner)
+├── deploy          # Deployment tools (argocd, flux)
+└── registry        # Artifact registries (harbor, nexus)
+
+security/
+├── secrets         # Secret management (vault, sealed-secrets)
+├── auth            # Authentication/authorization (keycloak, oauth2-proxy)
+└── scanning        # Security scanning (trivy, clair)
+
+storage/
+├── object          # Object storage (minio, seaweedfs)
+├── file            # File systems (nfs, glusterfs)
+└── backup          # Backup solutions (restic, velero)
+
+networking/
+├── dns             # DNS servers (coredns, pihole)
+├── vpn             # VPN solutions (wireguard, openvpn)
+└── service-mesh    # Service meshes (istio, linkerd)
+
+runtime/
+├── container       # Container runtimes (docker, containerd, podman)
+├── serverless      # Serverless platforms (openfaas, knative)
+└── orchestration   # Orchestration (kubernetes, nomad)
+
+development/
+├── ide             # Development environments (code-server, jupyter)
+├── testing         # Testing tools (selenium, playwright)
+└── debugging       # Debugging tools (delve, gdb)
+```
+
+#### Multiple Category Assignment
+
+Tools can belong to multiple categories. Each tool has:
+
+- **Primary category/subcategory**: The main classification (e.g., `databases/search`)
+- **Secondary categories**: Additional relevant categories (e.g., `monitoring/logging`)
+
+For example, Elasticsearch:
+- Primary: `databases/search` — It's fundamentally a search engine
+- Secondary: `monitoring/logging` — Commonly used in logging stacks (ELK)
+
+The LLM is prompted to identify both primary and secondary categories when applicable.
+
+#### Classification Flow
+
+**Step 1: Cache Lookup**
+
+Classifications are cached by `canonical_name` (e.g., "postgres"), not by artifact ID. This means one classification covers all variants:
+- `docker_hub:library/postgres`
+- `github:postgres/postgres`
+- `helm:bitnami/postgresql`
+
+All share `canonical_name: "postgres"` and get the same cached classification.
+
+**Step 2: Override Check**
+
+Manual overrides are checked by full artifact ID, allowing fine-grained corrections:
+
+```json
+{
+  "docker_hub:someuser/postgres-api": {
+    "primary_category": "web",
+    "primary_subcategory": "server",
+    "secondary_categories": ["databases/relational"],
+    "reason": "REST API wrapper for PostgreSQL, not PostgreSQL itself"
+  }
+}
+```
+
+**Step 3: LLM Classification**
+
+On cache miss with no override, the tool is sent to Ollama for classification:
+
+```
+Classify this development tool into categories from the provided taxonomy.
+
+Tool: elasticsearch
+Description: Open Source, Distributed, RESTful Search Engine
+Tags: ["search", "elasticsearch", "database", "logging", "analytics"]
+
+Respond in JSON format:
+{
+  "primary_category": "...",
+  "primary_subcategory": "...",
+  "secondary_categories": ["category/subcategory", ...]  // optional, omit if none
+}
+
+[Full taxonomy provided in prompt]
+```
+
+**Step 4: Cache Result**
+
+The classification is cached permanently (or with a long TTL). Re-running the categorizer on the same tool returns the cached result without calling Ollama.
+
+#### Handling Name Collisions
+
+Different tools can share the same name (e.g., multiple Docker images named "postgres"). This creates a potential collision scenario:
+
+```
+docker_hub:library/postgres      → actual PostgreSQL database
+docker_hub:someuser/postgres     → REST API wrapper for PostgreSQL
+docker_hub:anotheruser/postgres  → some completely unrelated tool
+```
+
+If we naively cache `name == "postgres"` → `canonical_name: "postgres"` → `databases/relational`, we'd miscategorize the API wrapper.
+
+**Why It's Not a Big Problem**
+
+1. **Unique IDs prevent artifact-level collision**
+
+   Each artifact has a unique ID (`docker_hub:library/postgres` vs `docker_hub:someuser/postgres`). They're never confused at the storage level.
+
+2. **Canonical name assignment isn't just name-based**
+
+   `canonical_name` should only group true variants of the same tool. A REST API wrapper is a different tool—it would get its own canonical name like `postgres-rest-api` or stay as `someuser/postgres`. Only official/verified publishers contribute to shared `canonical_name`.
+
+3. **Official/verified images get priority**
+
+   The system prefers official (`library/*`) and verified publishers. Random user images would:
+   - Not share the same `canonical_name` (wrong publisher)
+   - Get categorized by their own tags/description (which would say "REST API" not "database")
+   - Likely get filtered out anyway (low downloads, unverified)
+
+4. **Override file for edge cases**
+
+   Misclassified artifacts can be corrected individually by their full artifact ID, allowing fine-grained fixes without affecting other tools.
+
+**Bottom Line**
+
+The collision risk is low because:
+- Cache lookup is by `canonical_name`, not raw artifact name
+- Canonical name grouping is intentional (publisher-verified), not automatic
+- Fallback LLM classification uses description/tags (which differ for wrappers)
+- Override file handles any remaining edge cases
+
+#### Configuration
+
+```bash
+# .env
+OLLAMA_MODEL=llama3                      # Model for classification
+OLLAMA_HOST=http://localhost:11434       # Ollama endpoint
+CATEGORY_CACHE_PATH=cache/categories.json
+CATEGORY_OVERRIDES_PATH=data/overrides.json
+```
+
+#### CLI Commands (Planned)
+
+```bash
+# Categorize a specific tool
+gts categorize postgres
+
+# Bulk categorize all uncategorized tools
+gts categorize --all
+
+# Re-categorize (bypass cache)
+gts categorize postgres --force
+
+# Show category distribution
+gts categories --stats
+```
 
 ## Architecture
 
@@ -357,28 +554,6 @@ cp .env.example .env       # Configure API keys
 pytest
 ruff check .
 ruff format .
-```
-
-### Dependencies
-
-```toml
-[project]
-dependencies = [
-    "httpx>=0.27",           # Async HTTP client
-    "pydantic>=2.0",         # Data validation
-    "sqlalchemy>=2.0",       # Database ORM
-    "typer>=0.12",           # CLI framework
-    "rich>=13.0",            # Terminal formatting
-    "python-dotenv>=1.0",    # Environment management
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "ruff>=0.4",
-    "mypy>=1.10",
-]
 ```
 
 ### Testing Strategy

@@ -11,6 +11,11 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+"""
+Tool Stuff
+"""
+
+
 class SourceType(str, Enum):
     """Supported tool sources."""
 
@@ -176,6 +181,11 @@ class Tool(BaseModel):
         """Set canonical name to tool name if not provided."""
         if not self.identity.canonical_name:
             self.identity.canonical_name = self.name.lower()
+
+
+"""
+Category stuff
+"""
 
 
 class CategoryStats(BaseModel):
