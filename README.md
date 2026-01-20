@@ -102,7 +102,6 @@ GeneralToolScrapper/
 ├── Storage/
 │   ├── FileManager.py      # JSON/filesystem persistence
 │   └── DatabaseManagers/
-│       └── FalkorDB.py     # Graph DB support (future)
 │
 ├── cli.py                  # Typer-based CLI orchestration
 ├── Models.py               # Pydantic models (Tool, Metrics, etc.)
@@ -111,7 +110,19 @@ GeneralToolScrapper/
 
 ### Design Principles
 
-**Atomic Evaluators:** Each evaluator is a pure function that can be run independently, tested in isolation, and swapped or weighted differently per user preference.
+**Stateless Evaluators:** Evaluators are pure functions with no hidden state. The contract enforces this:
+
+```python
+class Evaluator(Protocol):
+    def evaluate(self, tool: Tool, context: EvalContext) -> float: ...
+```
+
+Where `EvalContext` provides all external data needed for evaluation:
+- Category statistics (for relative scoring)
+- Global distributions (for normalization)
+- Config thresholds (user preferences)
+
+This prevents evaluators from querying storage directly or accumulating hidden state, making them trivially testable and parallelizable.
 
 **Uniform Data Model:** Scrapers return a uniform model defined in `Models.py`, allowing evaluators to process tools from any source identically.
 
@@ -119,6 +130,17 @@ GeneralToolScrapper/
 1. **Raw scraped fields** — Direct API data (downloads, stars, dates, tags)
 2. **Derived metrics** — Computed values (scores, normalized metrics)
 3. **User overlays** (future) — Custom weights, manual category overrides
+
+**Artifact Scores vs Tool Scores (Future):** Currently, scores are artifact-centric—each Docker image, GitHub repo, or Helm chart gets its own score. Eventually, a canonical tool may aggregate scores from multiple artifacts:
+
+```
+postgres (tool score: 93)
+├── docker_hub:library/postgres  → 94
+├── github:postgres/postgres     → 91
+└── helm:bitnami/postgresql      → 89
+```
+
+The aggregation strategy (max, weighted average, source preference) remains configurable. For now, artifacts are scored independently, but the data model supports grouping via `canonical_name` and `variants`.
 
 ## CLI Usage
 
