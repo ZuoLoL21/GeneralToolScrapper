@@ -22,7 +22,7 @@ Evaluators
 Storage
 - FileManager.py
 - DatabaseManagers
-    - FalkorDB.py
+    - FalkorDB.py (Phase 2+ for graph queries: "alternatives to X", "tools used together")
 
 cli.py
 Models.py
@@ -33,6 +33,13 @@ General architecture (if no .py, then it means a directory)
 Scrappers should return a uniform model defined in Models
 
 The evaluators should therefore be able to easily process each scraped tool
+
+### Data Separation (Conceptual)
+
+The system conceptually separates:
+1. **Raw scraped fields** - Direct data from APIs (downloads, stars, dates, tags)
+2. **Derived metrics** - Computed values (scores, normalized metrics, categories)
+3. **User overlays** (future) - Custom scoring weights, manual category overrides
 
 ## Data Model
 
@@ -56,7 +63,8 @@ The evaluators should therefore be able to easily process each scraped tool
         "usage_amount": int,      # Pull/Forks/Views/etc
     },
     "security": {
-        "trivy_scan_date": datetime,
+        "status": str,            # "ok" | "vulnerable" | "unknown"
+        "trivy_scan_date": datetime | None,
         "vulnerabilities": {
             "critical": int,
             "high": int,
@@ -72,9 +80,17 @@ The evaluators should therefore be able to easily process each scraped tool
         "is_deprecated": bool
     },
     "tags": list[str],
-    "functional_category": str,       # e.g., "databases", "monitoring", "ci-cd"
-    "functional_subcategory": str,    # e.g., "relational", "metrics", "logging"
+    "primary_category": str,          # e.g., "databases", "monitoring", "ci-cd"
+    "primary_subcategory": str,       # e.g., "relational", "metrics", "logging"
+    "secondary_categories": list[str], # For tools spanning multiple domains
+    "lifecycle": str,                 # "active" | "stable" | "legacy" | "experimental"
     "quality_score": float,           # Computed score 0-100
+    "score_breakdown": {
+        "popularity": float,
+        "security": float,
+        "maintenance": float,
+        "trust": float
+    },
     "scraped_at": datetime
 }
 ```
@@ -90,17 +106,21 @@ quality_score = (
 )
 
 Where:
-- popularity_score: Normalized downloads/stars relative to category average 
+- popularity_score: Normalized downloads/stars relative to category average
     softmax with temperature modifier (reduce impact of popularity) rather than linear
+    NOTE: Falls back to global normalization if category sample size < N (configurable)
 - security_score: 100 - (critical*100 + high*10 + medium*1 + low*0.5), min 0
+    NOTE: If status="unknown", apply light penalty (e.g., 70) rather than 0
 - maintenance_score: Based on update frequency and last update recency
     last update within 2 weeks is fine, anything more will start losing points
-    loss of points influenced by how often they update 
+    loss of points influenced by how often they update
         if they update every 6 months with a giant update -> a delay of 2 months is fine
         if they update every day -> a delay of 2 months is more important
 - trust_score: official=100, verified_company=90, company=60, user=60
         company and user score can be increased if they are well established in the community
             eg high amount of total forks, stars, etc
+
+IMPORTANT: Raw metrics are always persisted so scores can be recomputed later with different weights or algorithms.
 ```
 
 ### Suggested Weights (configurable)
@@ -153,6 +173,23 @@ MIN_DOWNLOADS=1000           # Minimum downloads to consider
 MIN_STARS=100                # Minimum stars to consider
 MAX_DAYS_SINCE_UPDATE=365    # Max days since last update
 ```
+
+## Caching Strategy
+
+API responses are cached aggressively to reduce rate limit impact and improve day-to-day usability.
+
+```
+Cache Structure:
+- Location: Filesystem cache with configurable TTL
+- Key: (source, endpoint, params) tuple
+- TTL: Configurable per source (default 24h for metadata, 7d for security scans)
+- Force refresh: --force-refresh flag bypasses cache
+```
+
+Benefits:
+- Reduces API calls during development/testing
+- Enables offline browsing of previously scraped data
+- Allows incremental updates (only fetch changed data)
 
 ## Development Setup
 
