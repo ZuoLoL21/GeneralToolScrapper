@@ -403,7 +403,7 @@ dev = [
   - [x] Define `Tool` pydantic model matching the schema in README
   - [x] Define `Metrics`, `Security`, `Maintainer`, `Identity` sub-models
   - [x] Define `EvalContext` for stateless evaluator pattern
-  - [ ] Add model validation and serialization tests
+  - [x] Add model validation and serialization tests
 
 #### 2. Docker Hub Scraper
 
