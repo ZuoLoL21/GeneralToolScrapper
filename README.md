@@ -7,7 +7,7 @@ A tool aggregation system that discovers, evaluates, and catalogs useful develop
 ## Architecture
 
 ```
-Scrappers (source-specific scrapers)
+Scrapers (source-specific scrapers)
 - DockerHub
 - HelmCharts
 - Github
@@ -17,12 +17,13 @@ Evaluators
 - Popularity
 - Security
 - Maintenace
-- Evaluator.py (an evaluator that evaluates everything and returns it)
+- Trust
+- Evaluator.py (an evaluator strings the four evaluators together)
 
 Storage
 - FileManager.py
 - DatabaseManagers
-    - FalkorDB.py (Phase 2+ for graph queries: "alternatives to X", "tools used together")
+    - FalkorDB.py (problems for later)
 
 cli.py
 Models.py
@@ -30,7 +31,7 @@ config.toml
 ```
 General architecture (if no .py, then it means a directory)
 
-Scrappers should return a uniform model defined in Models
+Scrapers should return a uniform model defined in Models
 
 The evaluators should therefore be able to easily process each scraped tool
 
@@ -174,6 +175,12 @@ MIN_STARS=100                # Minimum stars to consider
 MAX_DAYS_SINCE_UPDATE=365    # Max days since last update
 ```
 
+### Security Scanning Strategy
+
+Trivy scanning is resource-intensive. Options:
+- `TRIVY_MODE=lazy` - Only scan on-demand or top-N per category
+- `TRIVY_MODE=eager` - Scan all discovered tools (slower)
+
 ## Caching Strategy
 
 API responses are cached aggressively to reduce rate limit impact and improve day-to-day usability.
@@ -190,6 +197,12 @@ Benefits:
 - Reduces API calls during development/testing
 - Enables offline browsing of previously scraped data
 - Allows incremental updates (only fetch changed data)
+
+### Rate Limit Handling
+
+- Exponential backoff on 429 responses
+- Persist scrape queue to disk for recovery across restarts
+- Track per-source rate limit state in config/state file
 
 ## Development Setup
 
@@ -318,6 +331,13 @@ gts scan --tool nginx
 4. Do we want a web UI eventually, or CLI-only?
    1. Currently CLI
 
+### Tool Disambiguation Strategy
+
+Multiple images/repos may exist for the same tool (e.g., `nginx`, `postgres`). Resolution:
+1. Prefer official images (verified publisher)
+2. Group by canonical tool name, track all publishers
+3. Store `canonical_name` field linking variants to the same underlying tool
+
 
 ## Tool Basis Strategy
 
@@ -374,3 +394,8 @@ Categories are auto-generated using:
 3. Known tool mappings (curated list of common tools)
 
 Tools are grouped into functional subcategories based on what problem they solve, not their implementation details.
+
+Fallback strategy when tags are missing/unreliable:
+- Curated seed list mapping known tools to categories
+- Keyword extraction from description
+- Manual override file (user-defined mappings)
