@@ -19,8 +19,8 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # Run
-gts scrape --source docker_hub
-gts search "postgres" --category databases
+src scrape --source docker_hub
+src search "postgres" --category databases
 ```
 
 ## Core Concepts
@@ -148,24 +148,24 @@ The aggregation strategy (max, weighted average, source preference) remains conf
 
 ```bash
 # Scraping
-gts scrape --all                          # Scrape all sources
-gts scrape --source docker_hub            # Scrape specific source
+src scrape --all                          # Scrape all sources
+src scrape --source docker_hub            # Scrape specific source
 
 # Discovery
-gts search "postgres" --category databases
-gts top --category monitoring --limit 10
-gts compare postgres mysql                # Compare tools in same subcategory
+src search "postgres" --category databases
+src top --category monitoring --limit 10
+src compare postgres mysql                # Compare tools in same subcategory
 
 # Basis Generation
-gts basis --output basis.json             # One tool per subcategory
-gts basis --category databases            # Basis for specific category
-gts list --full --category databases      # Full list with alternatives
+src basis --output basis.json             # One tool per subcategory
+src basis --category databases            # Basis for specific category
+src list --full --category databases      # Full list with alternatives
 
 # Security
-gts scan --tool nginx                     # Run Trivy scan on specific tool
+src scan --tool nginx                     # Run Trivy scan on specific tool
 
 # Export
-gts export --format json --output tools.json
+src export --format json --output tools.json
 ```
 
 ### Filtering Logic
@@ -393,16 +393,16 @@ dev = [
 
 #### 1. Foundation
 
-- [ ] **Project scaffolding**
-  - [ ] Set up `pyproject.toml` with dependencies (httpx, pydantic, typer, rich)
-  - [ ] Configure ruff/mypy for linting and type checking
-  - [ ] Create `.env.example` with all configuration variables
-  - [ ] Set up pytest with async support
+- [x] **Project scaffolding**
+  - [x] Set up `pyproject.toml` with dependencies (httpx, pydantic, typer, rich)
+  - [x] Configure ruff/mypy for linting and type checking
+  - [x] Create `.env.example` with all configuration variables
+  - [x] Set up pytest with async support
 
-- [ ] **Data model (`Models.py`)**
-  - [ ] Define `Tool` pydantic model matching the schema in README
-  - [ ] Define `Metrics`, `Security`, `Maintainer`, `Identity` sub-models
-  - [ ] Define `EvalContext` for stateless evaluator pattern
+- [x] **Data model (`Models.py`)**
+  - [x] Define `Tool` pydantic model matching the schema in README
+  - [x] Define `Metrics`, `Security`, `Maintainer`, `Identity` sub-models
+  - [x] Define `EvalContext` for stateless evaluator pattern
   - [ ] Add model validation and serialization tests
 
 #### 2. Docker Hub Scraper
@@ -492,9 +492,9 @@ dev = [
 
 Phase 1 is complete when you can run:
 ```bash
-gts scrape --source docker_hub
-gts top --category databases --limit 5
-gts export --format json --output tools.json
+src scrape --source docker_hub
+src top --category databases --limit 5
+src export --format json --output tools.json
 ```
 
 And get scored, filtered results with security data for top tools.
