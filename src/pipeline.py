@@ -11,6 +11,7 @@ This module coordinates all steps of the tool processing pipeline:
 8. Store results
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,26 @@ from src.scrapers import DockerHubScraper
 from src.storage.permanent_storage.file_manager import FileManager
 
 logger = logging.getLogger(__name__)
+
+
+async def _scrape_async(scraper: DockerHubScraper, limit: int | None = None) -> list[Tool]:
+    """Async helper to scrape tools with optional limit.
+
+    Args:
+        scraper: The scraper instance to use.
+        limit: Optional limit on number of tools to scrape.
+
+    Returns:
+        List of scraped tools.
+    """
+    tools = []
+    count = 0
+    async for tool in scraper.scrape():
+        tools.append(tool)
+        count += 1
+        if limit is not None and count >= limit:
+            break
+    return tools
 
 
 def run_scrape_pipeline(
@@ -66,7 +87,7 @@ def run_scrape_pipeline(
 
     if source_type == SourceType.DOCKER_HUB:
         scraper = DockerHubScraper()
-        raw_tools = scraper.scrape(limit=limit)
+        raw_tools = asyncio.run(_scrape_async(scraper, limit))
     else:
         raise ValueError(f"Unsupported source: {source_type}")
 
