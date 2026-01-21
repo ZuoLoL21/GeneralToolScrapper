@@ -58,7 +58,7 @@ def run_scrape_pipeline(
     limit: int | None = None,
     data_dir: Path | None = None,
     namespaces: list[str] | None = None,
-) -> list[Tool]:
+) -> tuple[list[Tool], list[Tool]]:
     """Run full pipeline: scrape → pre-filter → classify → keywords → stats → evaluate → post-filter → store.
 
     Args:
@@ -69,7 +69,9 @@ def run_scrape_pipeline(
         namespaces: Optional list of Docker Hub namespaces to scrape. None = use env or default.
 
     Returns:
-        List of processed tools (after post-filtering).
+        Tuple of (all_tools, new_tools) where:
+        - all_tools: List of all tools after merging with existing data
+        - new_tools: List of newly scraped tools in this run
     """
     logger.info(f"Starting pipeline for source: {source}")
     start_time = datetime.now(UTC)
@@ -109,8 +111,10 @@ def run_scrape_pipeline(
             "No tools passed pre-filtering. All tools were excluded as junk. "
             "Consider adjusting pre-filter criteria or scraping different namespaces."
         )
-        file_manager.save_processed([])
-        return []
+        file_manager.save_processed([], merge=True)
+        # Load all existing tools to return
+        all_tools = file_manager.load_processed() or []
+        return all_tools, []
 
     # Step 3: Classify (assign categories)
     logger.info("Step 3/8: Classifying tools...")
@@ -158,13 +162,20 @@ def run_scrape_pipeline(
 
     # Step 8: Store results
     logger.info("Step 8/8: Storing processed data...")
-    file_manager.save_processed(filtered_tools)  # Save all tools (including excluded)
+    _, new_count = file_manager.save_processed(filtered_tools, merge=True)  # Merge with existing
+
+    # Load all tools (including previously scraped ones)
+    all_tools = file_manager.load_processed() or []
 
     # Calculate duration
     duration = (datetime.now(UTC) - start_time).total_seconds()
-    logger.info(f"Pipeline complete in {duration:.1f}s: {len(final_tools)} tools ready")
+    logger.info(
+        f"Pipeline complete in {duration:.1f}s: "
+        f"{len(all_tools)} total tools ({new_count} new), "
+        f"{len(final_tools)} visible"
+    )
 
-    return final_tools
+    return all_tools, final_tools
 
 
 def load_processed_tools(
@@ -224,17 +235,17 @@ def main() -> None:
     # Example 1: Run pipeline for Docker Hub (limited)
     print("1. Running pipeline for Docker Hub (limit 20 tools)...")
     try:
-        tools = run_scrape_pipeline(
+        all_tools, new_tools = run_scrape_pipeline(
             source=SourceType.DOCKER_HUB,
             limit=20,
             force_refresh=False,
         )
-        print(f"   Pipeline complete: {len(tools)} tools processed\n")
+        print(f"   Pipeline complete: {len(all_tools)} total tools, {len(new_tools)} new\n")
 
         # Show sample results
-        if tools:
-            print("   Sample results:")
-            for tool in tools[:3]:
+        if new_tools:
+            print("   Sample new results:")
+            for tool in new_tools[:3]:
                 print(f"   - {tool.name}")
                 print(f"     Category: {tool.primary_category}/{tool.primary_subcategory}")
                 print(f"     Keywords: {', '.join(tool.keywords[:5]) if tool.keywords else '(none)'}")

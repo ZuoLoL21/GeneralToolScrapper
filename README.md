@@ -74,6 +74,46 @@ gts scrape --source docker_hub --namespaces "library,bitnami" --limit 500
 DOCKER_HUB_NAMESPACES=popular gts scrape --source docker_hub --namespaces "library"
 ```
 
+### Data Persistence & Incremental Scraping
+
+**The scraper automatically merges new data with existing tools instead of overwriting them.** This means:
+
+- **First run**: Scrapes tools and stores them in `data/processed/tools.json`
+- **Subsequent runs**:
+  - Loads existing tools from storage
+  - Scrapes new tools (or re-scrapes with updated data)
+  - Merges based on tool ID (updates existing, adds new)
+  - Preserves previously scraped tools that aren't in the current run
+
+**Output includes two summary tables:**
+
+1. **All Tools**: Complete dataset including previously scraped tools
+2. **Newly Scraped Tools**: Only tools added or updated in the current run
+
+**Example workflow:**
+
+```bash
+# First scrape: library namespace (177 tools)
+gts scrape --source docker_hub --namespaces "library"
+# Output: Total tools: 177 (177 new)
+
+# Second scrape: bitnami namespace (different tools)
+gts scrape --source docker_hub --namespaces "bitnami"
+# Output: Total tools: 500 (323 new)
+# Shows two tables: all 500 tools + the 323 newly added
+
+# Re-scrape library to update existing data
+gts scrape --source docker_hub --namespaces "library"
+# Output: Total tools: 500 (0 new)
+# Updates the 177 library tools with fresh data, preserves 323 bitnami tools
+```
+
+This design enables:
+- **Incremental discovery**: Build your catalog across multiple scraping sessions
+- **Data safety**: Previously scraped tools are never lost
+- **Update flexibility**: Re-scrape specific namespaces to refresh data without losing others
+- **Clear visibility**: See both your complete dataset and what changed in each run
+
 ## Operating Modes
 
 The system supports two modes to balance simplicity with full functionality:
@@ -188,6 +228,7 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 - [x] Categorization with keyword taxonomy
 - [x] Keyword assignment system
 - [x] File-based storage layer
+- [x] Incremental scraping with automatic data merging
 - [x] Centralized caching
 - [x] Popularity and maintenance evaluators
 - [x] Pre/post filtering logic

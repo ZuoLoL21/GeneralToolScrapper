@@ -156,30 +156,49 @@ class FileManager(PermanentStorage):
 
     # === PROCESSED DATA OPERATIONS ===
 
-    def save_processed(self, tools: list[Tool]) -> Path:
+    def save_processed(self, tools: list[Tool], merge: bool = True) -> tuple[Path, int]:
         """Save unified tool catalog.
 
         This is the merged result from all sources after filtering
         and categorization.
 
         Args:
-            tools: List of processed tools.
+            tools: List of processed tools to save.
+            merge: If True, merge with existing tools instead of overwriting.
 
         Returns:
-            Path to the saved file.
+            Tuple of (Path to the saved file, count of newly added tools).
         """
         self._ensure_dirs(self._processed_dir)
         path = self._processed_dir / "tools.json"
 
+        # Load existing tools if merge is enabled
+        existing_tools: dict[str, Tool] = {}
+        if merge:
+            loaded = self.load_processed()
+            if loaded:
+                existing_tools = {tool.id: tool for tool in loaded}
+                logger.info(f"Loaded {len(existing_tools)} existing tools for merging")
+
+        # Merge new tools with existing ones
+        new_count = 0
+        for tool in tools:
+            if tool.id not in existing_tools:
+                new_count += 1
+            existing_tools[tool.id] = tool
+
+        # Convert back to list
+        all_tools = list(existing_tools.values())
+
         data = {
             "version": "1.0",
             "updated_at": datetime.now(UTC).isoformat(),
-            "total_tools": len(tools),
-            "tools": [tool.model_dump(mode="json") for tool in tools],
+            "total_tools": len(all_tools),
+            "tools": [tool.model_dump(mode="json") for tool in all_tools],
         }
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        logger.info(f"Saved processed tools: {path} ({len(tools)} tools)")
-        return path
+        logger.info(f"Saved processed tools: {path} ({len(all_tools)} total, {new_count} new)")
+        return path, new_count
 
     def load_processed(self) -> list[Tool] | None:
         """Load unified tool catalog.

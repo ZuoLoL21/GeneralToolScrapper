@@ -82,7 +82,7 @@ def scrape(
     console.print(f"\n[bold]Scraping {source_type.value}...[/bold]\n")
 
     try:
-        tools = run_scrape_pipeline(
+        all_tools, new_tools = run_scrape_pipeline(
             source=source_type,
             force_refresh=force_refresh,
             limit=limit,
@@ -91,29 +91,55 @@ def scrape(
 
         # Display summary
         console.print(f"\n[bold green]Pipeline complete![/bold green]")
-        console.print(f"Processed {len(tools)} tools\n")
+        console.print(f"Total tools: {len(all_tools)} ({len(new_tools)} new)\n")
 
-        # Create summary table
-        table = Table(title="Summary by Category")
-        table.add_column("Category", style="cyan")
-        table.add_column("Count", justify="right", style="magenta")
-        table.add_column("Avg Score", justify="right", style="green")
+        # Create summary table for ALL tools
+        table_all = Table(title="Summary of All Tools by Category")
+        table_all.add_column("Category", style="cyan")
+        table_all.add_column("Count", justify="right", style="magenta")
+        table_all.add_column("Avg Score", justify="right", style="green")
 
-        # Group by category
-        categories: dict[str, list[Tool]] = {}
-        for tool in tools:
+        # Group all tools by category
+        categories_all: dict[str, list[Tool]] = {}
+        for tool in all_tools:
             cat = tool.primary_category or "uncategorized"
-            if cat not in categories:
-                categories[cat] = []
-            categories[cat].append(tool)
+            if cat not in categories_all:
+                categories_all[cat] = []
+            categories_all[cat].append(tool)
 
         # Calculate stats and add rows
-        for cat in sorted(categories.keys()):
-            cat_tools = categories[cat]
+        for cat in sorted(categories_all.keys()):
+            cat_tools = categories_all[cat]
             avg_score = sum(t.quality_score or 0 for t in cat_tools) / len(cat_tools)
-            table.add_row(cat, str(len(cat_tools)), f"{avg_score:.1f}")
+            table_all.add_row(cat, str(len(cat_tools)), f"{avg_score:.1f}")
 
-        console.print(table)
+        console.print(table_all)
+
+        # Create summary table for NEW tools (only if there are new tools)
+        if new_tools:
+            console.print()  # Add spacing
+            table_new = Table(title="Summary of Newly Scraped Tools by Category")
+            table_new.add_column("Category", style="cyan")
+            table_new.add_column("Count", justify="right", style="magenta")
+            table_new.add_column("Avg Score", justify="right", style="green")
+
+            # Group new tools by category
+            categories_new: dict[str, list[Tool]] = {}
+            for tool in new_tools:
+                cat = tool.primary_category or "uncategorized"
+                if cat not in categories_new:
+                    categories_new[cat] = []
+                categories_new[cat].append(tool)
+
+            # Calculate stats and add rows
+            for cat in sorted(categories_new.keys()):
+                cat_tools = categories_new[cat]
+                avg_score = sum(t.quality_score or 0 for t in cat_tools) / len(cat_tools)
+                table_new.add_row(cat, str(len(cat_tools)), f"{avg_score:.1f}")
+
+            console.print(table_new)
+        else:
+            console.print("\n[yellow]No new tools were scraped in this run.[/yellow]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
