@@ -74,13 +74,32 @@ class DockerHubScraper(BaseScraper):
             data_dir: Directory for cache and queue files. Defaults to ./data.
             request_delay_ms: Delay between requests in milliseconds.
             use_cache: Whether to cache API responses.
-            cache_ttl_seconds:Cache TTL in seconds (default 24h).
-            namespaces: List of namespaces to scrape. None = discover popular.
+            cache_ttl_seconds: Cache TTL in seconds (default 24h).
+            namespaces: List of namespaces to scrape.
+                       None = read from env (DOCKER_HUB_NAMESPACES)
         """
+        import os
+
+        from src.consts import DOCKER_HUB_DEFAULT_NAMESPACES, DOCKER_HUB_POPULAR_NAMESPACES
+
         self.data_dir = data_dir or DEFAULT_DATA_DIR
         self.request_delay_ms = request_delay_ms
         self.use_cache = use_cache
-        self.namespaces = namespaces or ["library"]  # Official images by default
+
+        # Namespace resolution: explicit param > env var > default
+        if namespaces is not None:
+            self.namespaces = namespaces
+        else:
+            env_namespaces = os.getenv("DOCKER_HUB_NAMESPACES", "").strip()
+            if env_namespaces:
+                if env_namespaces.lower() == "popular":
+                    self.namespaces = DOCKER_HUB_POPULAR_NAMESPACES
+                else:
+                    self.namespaces = [ns.strip() for ns in env_namespaces.split(",") if ns.strip()]
+            else:
+                self.namespaces = DOCKER_HUB_DEFAULT_NAMESPACES
+
+        logger.info(f"Docker Hub scraper: {len(self.namespaces)} namespaces: {self.namespaces}")
 
         self._rate_limiter = RateLimiter()
         self._queue = ScrapeQueue(self.data_dir / "cache" / "docker_hub_queue.json")
@@ -441,6 +460,29 @@ async def main2() -> None:
     print("\nDone!")
 
 
+async def main_multiple_namespaces() -> None:
+    """Example: Scrape from multiple namespaces."""
+    print("\n3. Scraping from multiple namespaces (library, bitnami)...")
+    scraper = DockerHubScraper(
+        namespaces=["library", "bitnami"],
+        request_delay_ms=100,
+    )
+
+    count = 0
+    async for tool in scraper.scrape_with_resume(resume=False):
+        namespace = tool.id.split(":")[1].split("/")[0]
+        print(f"   [{count+1}] {tool.name} (namespace: {namespace})")
+        count += 1
+        if count >= 10:
+            break
+
+    # Clean up the client
+    if scraper._client:
+        await scraper._client.aclose()
+
+    print("Successfully scraped from multiple namespaces")
+
+
 if __name__ == "__main__":
     # Configure logging to see what's happening
     logging.basicConfig(
@@ -449,3 +491,4 @@ if __name__ == "__main__":
     )
     asyncio.run(main1())
     asyncio.run(main2())
+    asyncio.run(main_multiple_namespaces())

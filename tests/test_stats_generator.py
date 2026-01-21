@@ -77,9 +77,13 @@ def test_compute_global_stats(sample_tool):
 
 
 def test_compute_global_stats_empty():
-    """Test that empty tools list raises error."""
-    with pytest.raises(ValueError, match="Cannot compute global stats from empty tools list"):
-        compute_global_stats([])
+    """Test that empty tools list returns sentinel stats."""
+    global_stats = compute_global_stats([])
+    assert global_stats.total_tools == 0
+    assert global_stats.downloads.log_mean == 0.0
+    assert global_stats.downloads.log_std == 1.0
+    assert global_stats.stars.log_mean == 0.0
+    assert global_stats.stars.log_std == 1.0
 
 
 def test_compute_category_stats():

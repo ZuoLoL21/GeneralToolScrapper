@@ -5,11 +5,14 @@ popularity score normalization. Statistics are computed once per evaluation run
 and passed to evaluators via EvalContext.
 """
 
+import logging
 import math
 from collections import defaultdict
 
 from src.models.model_stats import CategoryStats, DistributionStats, GlobalStats
 from src.models.model_tool import Tool
+
+logger = logging.getLogger(__name__)
 
 
 def _compute_distribution_stats(values: list[int]) -> DistributionStats:
@@ -64,13 +67,32 @@ def compute_global_stats(tools: list[Tool]) -> GlobalStats:
         tools: List of all tools in the catalog
 
     Returns:
-        GlobalStats with download and star distributions
-
-    Raises:
-        ValueError: If tools list is empty
+        GlobalStats with download and star distributions.
+        Returns sentinel values if tools list is empty.
     """
     if not tools:
-        raise ValueError("Cannot compute global stats from empty tools list")
+        logger.warning("Empty tools list - returning sentinel global stats")
+        return GlobalStats(
+            total_tools=0,
+            downloads=DistributionStats(
+                min=0,
+                max=0,
+                median=0,
+                p25=0,
+                p75=0,
+                log_mean=0.0,
+                log_std=1.0,
+            ),
+            stars=DistributionStats(
+                min=0,
+                max=0,
+                median=0,
+                p25=0,
+                p75=0,
+                log_mean=0.0,
+                log_std=1.0,
+            ),
+        )
 
     # Extract all downloads and stars
     downloads = [tool.metrics.downloads for tool in tools]
@@ -143,10 +165,8 @@ def generate_all_stats(tools: list[Tool]) -> tuple[GlobalStats, dict[str, Catego
         tools: List of all tools in the catalog
 
     Returns:
-        Tuple of (GlobalStats, category_stats_dict)
-
-    Raises:
-        ValueError: If tools list is empty
+        Tuple of (GlobalStats, category_stats_dict).
+        Returns sentinel values if tools list is empty.
     """
     global_stats = compute_global_stats(tools)
     category_stats = compute_category_stats(tools)

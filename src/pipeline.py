@@ -57,6 +57,7 @@ def run_scrape_pipeline(
     force_refresh: bool = False,
     limit: int | None = None,
     data_dir: Path | None = None,
+    namespaces: list[str] | None = None,
 ) -> list[Tool]:
     """Run full pipeline: scrape → pre-filter → classify → keywords → stats → evaluate → post-filter → store.
 
@@ -65,6 +66,7 @@ def run_scrape_pipeline(
         force_refresh: If True, bypass classifier/keyword caches.
         limit: Optional limit on number of tools to scrape.
         data_dir: Data directory path. Uses default if None.
+        namespaces: Optional list of Docker Hub namespaces to scrape. None = use env or default.
 
     Returns:
         List of processed tools (after post-filtering).
@@ -86,7 +88,7 @@ def run_scrape_pipeline(
     source_type = source if isinstance(source, SourceType) else SourceType(source)
 
     if source_type == SourceType.DOCKER_HUB:
-        scraper = DockerHubScraper()
+        scraper = DockerHubScraper(namespaces=namespaces)
         raw_tools = asyncio.run(_scrape_async(scraper, limit))
     else:
         raise ValueError(f"Unsupported source: {source_type}")
@@ -100,6 +102,15 @@ def run_scrape_pipeline(
     logger.info("Step 2/8: Pre-filtering junk tools...")
     filtered_tools = pre_filter.apply(raw_tools)
     logger.info(f"After pre-filter: {len(filtered_tools)} tools")
+
+    # Early exit if no tools remain
+    if not filtered_tools:
+        logger.warning(
+            "No tools passed pre-filtering. All tools were excluded as junk. "
+            "Consider adjusting pre-filter criteria or scraping different namespaces."
+        )
+        file_manager.save_processed([])
+        return []
 
     # Step 3: Classify (assign categories)
     logger.info("Step 3/8: Classifying tools...")

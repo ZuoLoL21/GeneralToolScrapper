@@ -43,6 +43,11 @@ def scrape(
     all_sources: bool = typer.Option(False, "--all", help="Scrape all sources (not implemented)"),
     force_refresh: bool = typer.Option(False, "--force-refresh", help="Bypass cache"),
     limit: int = typer.Option(None, "--limit", help="Limit number of tools to scrape"),
+    namespaces: str = typer.Option(
+        None,
+        "--namespaces",
+        help="Comma-separated Docker Hub namespaces (e.g., 'library,bitnami,ubuntu')",
+    ),
 ) -> None:
     """Scrape tools from sources and run full pipeline."""
     # Configure logging
@@ -67,6 +72,12 @@ def scrape(
         console.print(f"[red]Error:[/red] Invalid source '{source}'. Must be: docker_hub")
         raise typer.Exit(1)
 
+    # Parse namespaces for Docker Hub
+    namespace_list = None
+    if namespaces:
+        namespace_list = [ns.strip() for ns in namespaces.split(",") if ns.strip()]
+        console.print(f"Using namespaces: {', '.join(namespace_list)}")
+
     # Run pipeline
     console.print(f"\n[bold]Scraping {source_type.value}...[/bold]\n")
 
@@ -75,6 +86,7 @@ def scrape(
             source=source_type,
             force_refresh=force_refresh,
             limit=limit,
+            namespaces=namespace_list,
         )
 
         # Display summary

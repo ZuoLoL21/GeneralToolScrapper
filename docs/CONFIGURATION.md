@@ -46,6 +46,12 @@ DOCKER_HUB_TOKEN=your_token
 ### Scraping Behavior
 
 ```bash
+# Docker Hub namespaces
+DOCKER_HUB_NAMESPACES=library         # Comma-separated namespaces or "popular"
+                                      # Default: "library" (~177 official images)
+                                      # Popular: 9 curated namespaces (thousands of tools)
+                                      # Custom: "library,bitnami,ubuntu,nginx,postgres"
+
 # Rate limiting
 SCRAPE_DELAY_MS=1000                  # Delay between requests (ms)
 MAX_CONCURRENT_REQUESTS=5             # Parallel requests per source
@@ -55,6 +61,12 @@ MAX_RETRIES=3                         # Retries on transient failures
 RETRY_BACKOFF_BASE=2                  # Exponential backoff base (seconds)
 RETRY_BACKOFF_MAX=60                  # Maximum backoff (seconds)
 ```
+
+**Docker Hub Namespace Options:**
+
+- **`library`** (default): Official Docker images only (~177 tools). Best for quick start and testing.
+- **`popular`**: Curated list of 9 verified namespaces (library, bitnami, ubuntu, alpine, mysql, postgres, nginx, redis, mongo). Recommended for production use.
+- **Custom list**: Comma-separated namespaces like `library,bitnami,nginx`. Use for targeted scraping.
 
 ### Filtering Thresholds
 

@@ -54,17 +54,21 @@ Fetch tools from source APIs.
 gts scrape [OPTIONS]
 
 Options:
-  --source SOURCE     Source to scrape: docker_hub, github, helm
-  --all               Scrape all sources
-  --force-refresh     Bypass cache, fetch fresh data
-  --limit N           Maximum tools to scrape (for testing)
+  --source SOURCE       Source to scrape: docker_hub, github, helm
+  --all                 Scrape all sources
+  --force-refresh       Bypass cache, fetch fresh data
+  --limit N             Maximum tools to scrape (for testing)
+  --namespaces NS       Comma-separated Docker Hub namespaces (overrides env)
 ```
 
 **Examples:**
 
 ```bash
-# Scrape Docker Hub
+# Scrape Docker Hub (default: official images only)
 gts scrape --source docker_hub
+
+# Scrape specific namespaces
+gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
 
 # Scrape all sources
 gts scrape --all
@@ -74,7 +78,30 @@ gts scrape --source docker_hub --force-refresh
 
 # Limit for testing
 gts scrape --source docker_hub --limit 100
+
+# Combine options
+gts scrape --source docker_hub --namespaces "library,bitnami" --limit 500
 ```
+
+**Docker Hub Namespace Configuration:**
+
+By default, only official Docker images (`library` namespace, ~177 tools) are scraped. To scrape more:
+
+1. **Via environment variable** (set in `.env`):
+   ```bash
+   DOCKER_HUB_NAMESPACES=popular  # Use popular preset (9 namespaces)
+   # or
+   DOCKER_HUB_NAMESPACES=library,bitnami,nginx,postgres  # Custom list
+   ```
+
+2. **Via CLI option** (overrides environment):
+   ```bash
+   gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
+   ```
+
+**Available presets:**
+- `library` (default): Official Docker images only (~177 tools)
+- `popular`: Curated list of 9 verified namespaces (library, bitnami, ubuntu, alpine, mysql, postgres, nginx, redis, mongo)
 
 **Output:**
 

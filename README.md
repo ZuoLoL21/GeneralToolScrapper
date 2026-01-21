@@ -23,6 +23,57 @@ cp .env.example .env
 gts --help
 ```
 
+## Docker Hub Namespace Configuration
+
+By default, the scraper only processes official Docker Hub images (`library` namespace, ~177 images). You can configure which namespaces to scrape using three methods:
+
+### 1. Default Behavior (Official Images Only)
+```bash
+# Scrapes only official Docker images (~177 tools)
+gts scrape --source docker_hub
+```
+
+### 2. Environment Variable
+Add to your `.env` file:
+```bash
+# Use the popular preset (9 curated namespaces: library, bitnami, ubuntu, etc.)
+DOCKER_HUB_NAMESPACES=popular
+
+# Or specify custom comma-separated namespaces
+DOCKER_HUB_NAMESPACES=library,bitnami,nginx,postgres
+```
+
+### 3. CLI Option (Overrides Environment)
+```bash
+# Specify namespaces directly via CLI
+gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
+
+# Scrape thousands of tools using popular preset
+gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu,alpine,mysql,postgres,nginx,redis,mongo"
+```
+
+### Available Presets
+
+- **`library`** (default): Official Docker images only (~177 tools)
+- **`popular`**: Curated list of 9 verified namespaces (library, bitnami, ubuntu, alpine, mysql, postgres, nginx, redis, mongo)
+
+### Examples
+
+```bash
+# Quick test with official images
+gts scrape --source docker_hub --limit 50
+
+# Production scrape with popular namespaces (thousands of tools)
+export DOCKER_HUB_NAMESPACES=popular
+gts scrape --source docker_hub
+
+# Custom namespace selection
+gts scrape --source docker_hub --namespaces "library,bitnami" --limit 500
+
+# Override environment variable for a single run
+DOCKER_HUB_NAMESPACES=popular gts scrape --source docker_hub --namespaces "library"
+```
+
 ## Operating Modes
 
 The system supports two modes to balance simplicity with full functionality:
@@ -133,6 +184,7 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 
 - [x] Project scaffolding and data models
 - [x] Docker Hub scraper with resilience
+- [x] Multiple namespace support (env var + CLI configuration)
 - [x] Categorization with keyword taxonomy
 - [x] Keyword assignment system
 - [x] File-based storage layer
@@ -142,6 +194,7 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 - [x] Basic CLI (scrape, search, top, export)
 - [x] Comprehensive test suite
 - [x] Taxonomy extension (15 categories, 70 subcategories, 173 keywords)
+- [x] Graceful handling of empty tool sets
 
 ### Future Phases
 
