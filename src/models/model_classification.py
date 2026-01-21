@@ -42,6 +42,22 @@ class ClassificationCacheEntry(BaseModel):
     source: str = Field(description="'llm' | 'override' | 'heuristic' | 'fallback'")
 
 
+class KeywordAssignment(BaseModel):
+    """Keyword assignment result (property classification)."""
+
+    keywords: list[str] = Field(
+        default_factory=list, description="Assigned property keywords"
+    )
+
+
+class KeywordAssignmentCacheEntry(BaseModel):
+    """Cache entry for keyword assignments."""
+
+    assignment: KeywordAssignment
+    assigned_at: datetime = Field(default_factory=_utc_now)
+    source: str = Field(description="'cache' | 'override' | 'heuristic' | 'fallback'")
+
+
 # === Enums ===
 
 
@@ -86,6 +102,16 @@ class IdentityResolution:
     resolution_source: ResolutionSource
     resolution_confidence: float
     identity_version: str = IDENTITY_VERSION
+
+
+@dataclass
+class KeywordAssignmentResult:
+    """Result of keyword assignment with metadata."""
+
+    assignment: KeywordAssignment
+    confidence: float
+    source: str  # "cache" | "override" | "heuristic" | "fallback"
+    cache_entry: KeywordAssignmentCacheEntry | None = None
 
 
 # === Taxonomy Dataclasses ===

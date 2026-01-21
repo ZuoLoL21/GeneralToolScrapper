@@ -218,6 +218,15 @@ class Tool(BaseModel):
     )
     lifecycle: Lifecycle = Field(default=Lifecycle.ACTIVE, description="Tool lifecycle stage")
 
+    # Keywords (property classification)
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="Property keywords (platform, architecture, protocol, etc.)",
+    )
+    keyword_version: str = Field(
+        default="1.0", description="Keyword taxonomy version for re-runs"
+    )
+
     # Derived scores
     quality_score: float | None = Field(
         default=None, ge=0.0, le=100.0, description="Weighted composite score 0-100"

@@ -1,0 +1,15 @@
+Add property/keywords to tools
+- set list of keywords
+    - desktop/ mobile
+    - high latency/ high throughput
+    - optimized/ highly optimized
+    - rest-api/ graphql/ protobuf
+    - etc
+
+Assign using LLM like with categories
+Have a set list and assign those keywords to a tool at the same time (more or less) as categories are assigned
+A tool can have multiple keywords, and should contain as many as apply
+
+The list of keywords should be comprehensive and extensive
+
+If there are problems with implementation, please ask
