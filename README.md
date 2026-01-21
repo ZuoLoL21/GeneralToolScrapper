@@ -216,6 +216,65 @@ This design enables:
 - **Update flexibility**: Re-scrape specific namespaces to refresh data without losing others
 - **Clear visibility**: See both your complete dataset and what changed in each run
 
+## Security Scanning with Trivy
+
+After scraping tools, you can scan Docker Hub images for vulnerabilities using Trivy:
+
+```bash
+# Scan tools with unknown or stale security status
+gts scan
+
+# Preview what would be scanned (dry run)
+gts scan --dry-run
+
+# Scan specific number of tools
+gts scan --limit 50
+
+# Force re-scan all Docker Hub tools (ignore staleness)
+gts scan --force
+
+# Customize scanning behavior
+gts scan --concurrency 5 --timeout 600 --tag alpine
+```
+
+### How Security Scanning Works
+
+- **Lazy scanning**: Only scans tools with `status=UNKNOWN` or scans older than 7 days
+- **Scan strategy**: Tries remote scan first (fast), falls back to local pull if needed
+- **Error handling**: Keeps `UNKNOWN` status on failure, logs warnings, caches failures (1 hour)
+- **Non-destructive**: Failed scans don't overwrite existing security data
+- **Progress tracking**: Real-time progress bar with vulnerability summary
+
+### Requirements
+
+Trivy must be installed separately:
+
+```bash
+# macOS
+brew install trivy
+
+# Linux
+curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+# Windows
+choco install trivy
+```
+
+See [Trivy installation guide](https://aquasecurity.github.io/trivy/latest/getting-started/installation/) for more options.
+
+### Example Workflow
+
+```bash
+# 1. Scrape tools
+gts scrape --source docker_hub --namespaces popular
+
+# 2. Scan for vulnerabilities
+gts scan
+
+# 3. View top-rated tools (security affects quality score)
+gts top --limit 20
+```
+
 ## Operating Modes
 
 The system supports two modes to balance simplicity with full functionality:
@@ -335,6 +394,7 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 - [x] Popularity and maintenance evaluators
 - [x] Pre/post filtering logic
 - [x] Basic CLI (scrape, search, top, export)
+- [x] Trivy security scanner with lazy scanning (scan command)
 - [x] Comprehensive test suite
 - [x] Taxonomy extension (15 categories, 70 subcategories, 173 keywords)
 - [x] Graceful handling of empty tool sets
@@ -345,6 +405,87 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 - **Phase 3:** Helm Charts (Artifact Hub) scraper
 - **Phase 4:** Tool disambiguation and canonical grouping
 - **Phase 5:** Web UI
+
+## Changelog
+
+### 2026-01-21: Trivy Security Scanner Implementation
+
+Implemented standalone Trivy security scanning capability via new `gts scan` CLI command.
+
+**New Features:**
+- **`gts scan` command**: Scan Docker Hub tools for vulnerabilities using Trivy
+  - `--limit`: Limit number of tools to scan
+  - `--force`: Re-scan all tools (ignore staleness)
+  - `--tag`: Docker image tag to scan (default: latest)
+  - `--concurrency`: Max concurrent scans (default: 3)
+  - `--timeout`: Scan timeout in seconds (default: 300)
+  - `--dry-run`: Preview without scanning
+
+**New Modules:**
+- `src/scanner/trivy_scanner.py`: Trivy CLI wrapper with async subprocess calls
+  - Remote-first scan strategy (fast, no pull)
+  - Automatic fallback to local pull if remote fails
+  - JSON output parsing to extract vulnerability counts by severity
+  - Timeout handling and comprehensive error recovery
+
+- `src/scanner/scan_orchestrator.py`: Batch scanning orchestration
+  - Lazy scanning: only scans tools with `status=UNKNOWN` or scans older than 7 days
+  - Concurrency control with `asyncio.Semaphore` (default: 3 concurrent scans)
+  - Progress tracking callbacks for CLI integration
+  - Non-destructive updates (failed scans don't overwrite existing data)
+
+- `src/scanner/image_resolver.py`: Tool ID to Docker image reference converter
+  - Handles `library` namespace special case (e.g., `docker_hub:library/postgres` → `postgres:latest`)
+  - Supports custom namespaces (e.g., `docker_hub:bitnami/postgresql` → `bitnami/postgresql:latest`)
+  - Configurable default tag (via `--tag` flag)
+
+- `src/scanner/scan_cache.py`: Failed scan caching (1-hour TTL)
+  - Prevents repeated scanning of problematic images
+  - Built on existing `FileCache` infrastructure
+  - Automatic expiration after 1 hour allows retry
+
+**New Data Models:**
+- `src/models/model_scanner.py`:
+  - `ScanResult`: Result of a single Trivy scan
+  - `ScanBatchResult`: Aggregated results of scanning multiple tools
+
+**Configuration:**
+- Added Trivy constants to `src/consts.py`:
+  - `TRIVY_DEFAULT_TIMEOUT = 300` (5 minutes)
+  - `TRIVY_DEFAULT_TAG = "latest"`
+  - `TRIVY_STALENESS_DAYS = 7` (re-scan after 7 days)
+  - `TRIVY_CONCURRENCY = 3` (max concurrent scans)
+  - `TRIVY_FAILED_SCAN_TTL = 3600` (1 hour cache for failed scans)
+
+**Key Characteristics:**
+- **Separate from pipeline**: Runs as standalone `gts scan` command (not integrated into scrape pipeline)
+- **Lazy scanning**: Only scans when needed (unknown status or stale data)
+- **Smart strategy**: Remote scan first (fast), local pull fallback (thorough)
+- **Error resilient**: Non-destructive failure handling, temporary caching prevents hammering
+- **Real-time feedback**: Progress bars and vulnerability summary tables via Rich
+
+**Example Workflow:**
+```bash
+# Scrape tools
+gts scrape --source docker_hub --namespaces popular
+
+# Preview what would be scanned
+gts scan --dry-run
+
+# Scan for vulnerabilities
+gts scan --limit 50
+
+# Force re-scan all tools
+gts scan --force
+
+# View top-rated tools (security affects quality score)
+gts top --limit 20
+```
+
+**Requirements:**
+- Trivy must be installed separately (see [installation guide](https://aquasecurity.github.io/trivy/latest/getting-started/installation/))
+- No changes to existing scraping or evaluation pipeline
+- Fully backward compatible with existing tool data
 
 ## License
 

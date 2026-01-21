@@ -293,3 +293,90 @@ Perfect! All 394 tests are passing. The implementation is complete and fully ver
   gts scrape --source docker_hub
 
   The implementation is backward compatible, fully tested, and ready for use!
+
+====
+ Perfect! The Trivy Security Scanner implementation is complete. Let me create a summary of what was implemented.
+
+  Implementation Summary
+
+  I've successfully implemented the Trivy Security Scanner for GeneralToolScraper according to the plan. Here's what was delivered:
+
+  ✅ Created Components                                    0
+
+  1. Data Models (src/models/model_scanner.py)
+    - ScanResult: Result of a single Trivy scan
+    - ScanBatchResult: Result of scanning multiple tools
+  2. Scanner Module (src/scanner/)
+    - image_resolver.py: Converts Tool IDs to Docker image references
+        - Handles library namespace special case (e.g., postgres:latest)
+      - Supports custom namespaces (e.g., bitnami/postgresql:latest)
+    - trivy_scanner.py: Trivy CLI wrapper with async subprocess calls
+        - Remote-first scan strategy (fast, no pull)
+      - Automatic fallback to local pull if remote fails
+      - JSON output parsing to extract vulnerability counts
+      - Timeout handling and error recovery
+    - scan_cache.py: Failed scan caching (1-hour TTL)
+        - Prevents repeated scanning of problematic images
+      - Built on existing FileCache infrastructure
+    - scan_orchestrator.py: Batch scanning orchestration
+        - Lazy scanning: only scans UNKNOWN or stale tools (7+ days old)
+      - Concurrency control with asyncio.Semaphore
+      - Progress tracking callbacks for CLI integration
+      - Non-destructive updates (failed scans don't overwrite existing data)
+  3. CLI Integration (src/cli.py)
+    - New gts scan command with comprehensive options:
+        - --limit: Limit number of tools to scan
+      - --force: Re-scan all tools (ignore staleness)
+      - --tag: Docker image tag to scan (default: latest)
+      - --concurrency: Max concurrent scans (default: 3)
+      - --timeout: Scan timeout in seconds (default: 300)
+      - --dry-run: Preview what would be scanned
+    - Real-time progress bar using Rich
+    - Vulnerability summary tables
+    - Automatic data persistence with merge support
+  4. Configuration (src/consts.py)
+    - TRIVY_DEFAULT_TIMEOUT = 300
+    - TRIVY_DEFAULT_TAG = "latest"
+    - TRIVY_STALENESS_DAYS = 7
+    - TRIVY_CONCURRENCY = 3
+    - TRIVY_FAILED_SCAN_TTL = 3600
+  5. Documentation (README.md)
+    - New "Security Scanning with Trivy" section
+    - Usage examples and installation instructions
+    - Updated roadmap to include completed security scanner
+
+  🎯 Key Features
+
+  - Lazy Scanning: Only scans tools with status=UNKNOWN or scans older than 7 days
+  - Smart Strategy: Tries remote scan first (fast), falls back to local pull if needed
+  - Error Handling: Keeps UNKNOWN status on failure, caches failures for 1 hour
+  - Non-Destructive: Failed scans don't overwrite existing security data
+  - Progress Tracking: Real-time progress bar with vulnerability counts
+  - Concurrency Control: Configurable parallel scanning (default: 3)
+
+  📊 Example Workflow
+
+  # 1. Scrape tools
+  gts scrape --source docker_hub --namespaces popular
+
+  # 2. Preview what would be scanned
+  gts scan --dry-run
+
+  # 3. Scan for vulnerabilities
+  gts scan --limit 50
+
+  # 4. Force re-scan all tools
+  gts scan --force
+
+  # 5. View top-rated tools (security affects quality score)
+  gts top --limit 20
+
+  ✅ Testing
+
+  All core modules have main() functions with examples:
+  - python -m src.scanner.image_resolver ✓
+  - python -m src.scanner.scan_cache ✓
+  - python -m src.scanner.trivy_scanner (requires Trivy installation)
+  - python -m src.scanner.scan_orchestrator (requires Trivy installation)
+
+  The implementation is complete and ready for use! The scanner integrates seamlessly with the existing infrastructure and follows all the project conventions.

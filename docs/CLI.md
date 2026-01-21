@@ -30,8 +30,9 @@ Options:
 |---------|-------------|--------|
 | `scrape` | Fetch tools from source APIs | ✅ Implemented |
 | `search` | Full-text search across tools | ✅ Implemented |
-| `top` | Show top-scoring tools | ✅ Implemented |
+| `top` | Show top-rated tools | ✅ Implemented |
 | `export` | Export data to file | ✅ Implemented |
+| `scan` | Scan Docker Hub tools for vulnerabilities | ✅ Implemented |
 | `list` | List tools with filtering | ⏳ Planned |
 | `basis` | Generate basis (one tool per subcategory) | ⏳ Planned |
 | `compare` | Compare tools side-by-side | ⏳ Planned |
@@ -39,7 +40,6 @@ Options:
 | `categorize` | Classify tools into categories | ⏳ Planned |
 | `categories` | Show category statistics | ⏳ Planned |
 | `identity` | Show identity resolution details | ⏳ Planned |
-| `scan` | Run security scan on a tool | ⏳ Planned |
 | `health` | Check external dependencies | ⏳ Planned |
 | `cache` | Manage caches | ⏳ Planned |
 | `config` | Show configuration | ⏳ Planned |
@@ -504,28 +504,191 @@ gts identity --show-variants
 
 ### `gts scan`
 
-Run security scan on a tool.
+Scan Docker Hub tools for vulnerabilities using Trivy.
+
+**Overview:**
+
+The `scan` command performs lazy security scanning of Docker Hub tools using Trivy. It only scans tools with `status=UNKNOWN` or scans older than 7 days, making it efficient for regular security audits.
+
+**Requirements:**
+
+Trivy must be installed separately:
 
 ```bash
-gts scan TOOL [OPTIONS]
+# macOS
+brew install trivy
+
+# Linux
+curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+# Windows
+choco install trivy
+```
+
+See [Trivy installation guide](https://aquasecurity.github.io/trivy/latest/getting-started/installation/) for more options.
+
+**Command:**
+
+```bash
+gts scan [OPTIONS]
 
 Options:
-  --force             Force rescan (bypass cache)
-  --severity LEVELS   Severity levels: CRITICAL,HIGH,MEDIUM,LOW
+  -l, --limit INTEGER         Limit tools to scan
+  --force                     Re-scan all (ignore staleness)
+  --tag TEXT                  Docker image tag to scan [default: latest]
+  --concurrency INTEGER       Max concurrent scans [default: 3]
+  --timeout INTEGER           Scan timeout (seconds) [default: 300]
+  --dry-run                   Preview without scanning
 ```
 
 **Examples:**
 
 ```bash
-# Scan specific tool
-gts scan nginx
+# Scan tools with unknown or stale security status
+gts scan
 
-# Force rescan
-gts scan nginx --force
+# Preview what would be scanned (no actual scanning)
+gts scan --dry-run
 
-# Only critical/high
-gts scan nginx --severity CRITICAL,HIGH
+# Scan specific number of tools
+gts scan --limit 50
+
+# Force re-scan all Docker Hub tools (ignore staleness)
+gts scan --force
+
+# Customize scanning behavior
+gts scan --concurrency 5 --timeout 600 --tag alpine
+
+# Scan with specific tag and limit
+gts scan --tag 16-alpine --limit 20
 ```
+
+**Scanning Strategy:**
+
+1. **Lazy scanning**: Only scans tools needing updates:
+   - Tools with `status=UNKNOWN`
+   - Tools never scanned (no `trivy_scan_date`)
+   - Tools with scans older than 7 days
+   - Skips tools with cached failures (1-hour cache)
+
+2. **Remote-first approach**:
+   - First tries remote scan (fast, no image pull required)
+   - Falls back to local scan (`docker pull` + scan) if remote fails
+   - Handles timeouts, network issues, and rate limits gracefully
+
+3. **Non-destructive updates**:
+   - Failed scans don't overwrite existing security data
+   - Maintains `UNKNOWN` status on failure
+   - Caches failures for 1 hour to prevent hammering
+
+**Output Example:**
+
+```bash
+$ gts scan --limit 10
+
+Scanning 10 tools...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 10/10
+
+Saved 8 updated tools
+
+Scan complete!
+
+           Scan Summary
+┏━━━━━━━━━━┳━━━━━━━┓
+┃ Metric   ┃ Count ┃
+┡━━━━━━━━━━╇━━━━━━━┩
+│ Total    │    10 │
+│ Succeeded│     8 │
+│ Failed   │     2 │
+│ Skipped  │     0 │
+│ Duration │  45.3s│
+└──────────┴───────┘
+
+    Vulnerability Summary
+┏━━━━━━━━━━┳━━━━━━━┓
+┃ Severity ┃ Count ┃
+┡━━━━━━━━━━╇━━━━━━━┩
+│ Critical │     3 │
+│ High     │    12 │
+│ Medium   │    45 │
+│ Low      │    89 │
+└──────────┴───────┘
+
+Failed scans (2):
+  docker_hub:bitnami/unknown-image: Image not found
+  docker_hub:library/test: Scan timeout (300s)
+```
+
+**Dry Run Output:**
+
+```bash
+$ gts scan --dry-run
+
+           Tools to Scan (Dry Run) - 23 tools
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Tool ID                        ┃ Image Ref       ┃ Current Status┃ Last Scan  ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ docker_hub:library/postgres    │ postgres:latest │ unknown       │ Never      │
+│ docker_hub:library/nginx       │ nginx:latest    │ ok            │ 2026-01-14 │
+│ docker_hub:bitnami/postgresql  │ bitnami/post... │ unknown       │ Never      │
+│ ...                            │ ...             │ ...           │ ...        │
+└────────────────────────────────┴─────────────────┴───────────────┴────────────┘
+
+Run without --dry-run to perform actual scanning
+```
+
+**How It Works:**
+
+1. **Filter tools**: Load all tools, filter to Docker Hub tools needing scan
+2. **Apply limit**: If `--limit` specified, scan only first N tools
+3. **Concurrent scanning**: Scan up to `--concurrency` tools in parallel (default: 3)
+4. **Progress tracking**: Real-time progress bar shows scan progress
+5. **Update tools**: Successful scans update tool security data
+6. **Save data**: Merge updated tools back into storage (preserves existing tools)
+7. **Display summary**: Show scan statistics and vulnerability counts
+
+**Security Data Updated:**
+
+For each successful scan, updates:
+- `security.vulnerabilities`: Counts by severity (critical, high, medium, low)
+- `security.trivy_scan_date`: Timestamp of scan
+- `security.status`: Set to `ok` (no critical/high) or `vulnerable` (has critical/high)
+
+**Integration with Quality Scoring:**
+
+Security data from scans affects the overall quality score:
+- Security dimension contributes 35% to quality score (default weight)
+- Tools with critical/high vulnerabilities receive lower security scores
+- Regular scanning keeps security data fresh for accurate recommendations
+
+**Common Workflows:**
+
+```bash
+# After scraping, scan all unknown tools
+gts scrape --source docker_hub --namespaces popular
+gts scan
+
+# Weekly security audit (re-scans tools older than 7 days)
+gts scan
+
+# Emergency re-scan after vulnerability disclosure
+gts scan --force
+
+# Quick spot check of top tools
+gts top --limit 20
+gts scan --limit 20
+```
+
+**Performance Expectations:**
+
+| Scenario | Tools | Estimated Time |
+|----------|-------|----------------|
+| Remote scan (no pull) | 100 | 15-20 minutes |
+| Local scan (with pull) | 100 | 45-60 minutes |
+| Mixed (80% remote, 20% local) | 100 | 25-30 minutes |
+
+Concurrency default of 3 balances speed vs resource usage. Increase for faster scans on powerful machines.
 
 ## Export Commands
 
@@ -663,15 +826,18 @@ gts config --profile production
 cp .env.example .env
 # Edit .env with API keys
 
-# 2. Health check
-gts health
+# 2. Health check (when implemented)
+# gts health
 
 # 3. Initial scrape
 gts scrape --source docker_hub
 
-# 4. Explore
-gts categories --tree
+# 4. Security scan (requires Trivy)
+gts scan
+
+# 5. Explore
 gts top --limit 10
+gts search postgres
 ```
 
 ### Finding Tools
@@ -696,13 +862,15 @@ gts explain kafka
 ### Production Audit
 
 ```bash
-# Use production profile
-gts top --profile production --category databases
+# Check security of all tools
+gts scan
 
-# Check security
-gts scan postgres
-gts scan nginx
+# View top-rated tools (security affects quality score)
+gts top --limit 20
 
 # Export for review
-gts export --format json --output audit.json --include-scores
+gts export --format json --output audit.json
+
+# Re-scan specific high-priority tools
+gts scan --force --limit 50
 ```

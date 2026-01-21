@@ -1,5 +1,6 @@
 """CLI interface for GeneralToolScraper."""
 
+import asyncio
 import csv
 import json
 import logging
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from src.models.model_tool import SourceType, Tool
@@ -372,6 +374,175 @@ def export(
     except Exception as e:
         console.print(f"[red]Error exporting:[/red] {e}")
         raise typer.Exit(1)
+
+
+@app.command()
+def scan(
+    limit: int = typer.Option(None, "--limit", "-l", help="Limit tools to scan"),
+    force: bool = typer.Option(False, "--force", help="Re-scan all (ignore staleness)"),
+    tag: str = typer.Option("latest", "--tag", help="Docker image tag to scan"),
+    concurrency: int = typer.Option(3, "--concurrency", help="Max concurrent scans"),
+    timeout: int = typer.Option(300, "--timeout", help="Scan timeout (seconds)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without scanning"),
+) -> None:
+    """Scan Docker Hub tools for vulnerabilities using Trivy."""
+    from src.consts import DEFAULT_DATA_DIR, TRIVY_FAILED_SCAN_TTL, TRIVY_STALENESS_DAYS
+    from src.scanner import ImageResolver, ScanCache, ScanOrchestrator, TrivyScanner
+    from src.storage.cache.file_caching import FileCache
+    from src.storage.permanent_storage.file_manager import FileManager
+
+    # Configure logging
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # Check Trivy installed
+    scanner = TrivyScanner(timeout=timeout)
+    if not scanner.is_trivy_installed():
+        console.print("[red]Error: Trivy not installed[/red]")
+        console.print(
+            "\nInstall Trivy from: https://aquasecurity.github.io/trivy/latest/getting-started/installation/"
+        )
+        console.print("\nQuick install:")
+        console.print("  macOS:   brew install trivy")
+        console.print("  Linux:   curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin")
+        console.print("  Windows: choco install trivy")
+        raise typer.Exit(1)
+
+    # Load processed tools
+    file_manager = FileManager(DEFAULT_DATA_DIR)
+    all_tools = file_manager.load_processed()
+
+    if not all_tools:
+        console.print("[yellow]No tools found. Run 'gts scrape' first.[/yellow]")
+        raise typer.Exit(1)
+
+    # Setup scanner components
+    cache_dir = Path(DEFAULT_DATA_DIR) / "cache"
+    file_cache = FileCache(cache_dir=cache_dir, default_ttl=0)
+    scan_cache = ScanCache(file_cache, failed_scan_ttl=TRIVY_FAILED_SCAN_TTL)
+    resolver = ImageResolver(default_tag=tag)
+    orchestrator = ScanOrchestrator(
+        scanner=scanner,
+        resolver=resolver,
+        scan_cache=scan_cache,
+        staleness_days=TRIVY_STALENESS_DAYS,
+    )
+
+    # Filter tools needing scan
+    tools_to_scan = orchestrator.filter_tools_needing_scan(all_tools, force=force)
+
+    if not tools_to_scan:
+        console.print("[green]All tools are up to date![/green]")
+        console.print("\nUse --force to re-scan all tools")
+        return
+
+    # Apply limit
+    if limit:
+        tools_to_scan = tools_to_scan[:limit]
+
+    # Dry run mode
+    if dry_run:
+        table = Table(title=f"Tools to Scan (Dry Run) - {len(tools_to_scan)} tools")
+        table.add_column("Tool ID", style="cyan")
+        table.add_column("Image Ref", style="blue")
+        table.add_column("Current Status", style="yellow")
+        table.add_column("Last Scan", style="dim")
+
+        for tool in tools_to_scan:
+            image_ref = resolver.resolve_image_ref(tool) or "N/A"
+            last_scan = (
+                tool.security.trivy_scan_date.strftime("%Y-%m-%d")
+                if tool.security.trivy_scan_date
+                else "Never"
+            )
+            table.add_row(
+                tool.id,
+                image_ref,
+                tool.security.status.value,
+                last_scan,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Run without --dry-run to perform actual scanning[/dim]")
+        return
+
+    # Run scans with progress bar
+    console.print(f"\n[bold]Scanning {len(tools_to_scan)} tools...[/bold]\n")
+
+    async def run_scans():
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Scanning...", total=len(tools_to_scan))
+
+            def on_progress(current: int, total: int):
+                progress.update(task, completed=current)
+
+            result = await orchestrator.scan_batch(
+                tools_to_scan,
+                concurrency=concurrency,
+                progress_callback=on_progress,
+            )
+
+            return result
+
+    # Run async scans
+    result = asyncio.run(run_scans())
+
+    # Save updated tools (merge mode)
+    if result.updated_tools:
+        file_manager.save_processed(result.updated_tools, merge=True)
+        console.print(f"\n[green]Saved {len(result.updated_tools)} updated tools[/green]")
+
+    # Display summary
+    console.print(f"\n[bold green]Scan complete![/bold green]")
+    summary_table = Table(title="Scan Summary")
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Count", justify="right", style="magenta")
+
+    summary_table.add_row("Total", str(result.total))
+    summary_table.add_row("Succeeded", str(result.succeeded))
+    summary_table.add_row("Failed", str(result.failed))
+    summary_table.add_row("Skipped", str(result.skipped))
+    summary_table.add_row("Duration", f"{result.duration_seconds:.1f}s")
+
+    console.print(summary_table)
+
+    # Vulnerability summary table (only if we have updated tools)
+    if result.updated_tools:
+        console.print()
+        vuln_table = Table(title="Vulnerability Summary")
+        vuln_table.add_column("Severity", style="cyan")
+        vuln_table.add_column("Count", justify="right")
+
+        # Aggregate vulnerability counts
+        total_vulns = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for tool in result.updated_tools:
+            total_vulns["critical"] += tool.security.vulnerabilities.critical
+            total_vulns["high"] += tool.security.vulnerabilities.high
+            total_vulns["medium"] += tool.security.vulnerabilities.medium
+            total_vulns["low"] += tool.security.vulnerabilities.low
+
+        vuln_table.add_row("Critical", f"[red]{total_vulns['critical']}[/red]")
+        vuln_table.add_row("High", f"[orange1]{total_vulns['high']}[/orange1]")
+        vuln_table.add_row("Medium", f"[yellow]{total_vulns['medium']}[/yellow]")
+        vuln_table.add_row("Low", f"[dim]{total_vulns['low']}[/dim]")
+
+        console.print(vuln_table)
+
+    # Show failures if any
+    if result.failures:
+        console.print(f"\n[yellow]Failed scans ({len(result.failures)}):[/yellow]")
+        for tool_id, error in list(result.failures.items())[:5]:
+            console.print(f"  [dim]{tool_id}:[/dim] {error[:80]}")
+        if len(result.failures) > 5:
+            console.print(f"  [dim]... and {len(result.failures) - 5} more[/dim]")
 
 
 if __name__ == "__main__":

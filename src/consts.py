@@ -105,3 +105,10 @@ DOCKER_HUB_NAMESPACE_PRESETS = {
     "popular": DOCKER_HUB_POPULAR_NAMESPACES,
     "all": DOCKER_HUB_ALL_NAMESPACES,
 }
+
+# Trivy scanner constants
+TRIVY_DEFAULT_TIMEOUT = 300  # 5 minutes
+TRIVY_DEFAULT_TAG = "latest"
+TRIVY_STALENESS_DAYS = 7  # Re-scan after 7 days
+TRIVY_CONCURRENCY = 3  # Max concurrent scans
+TRIVY_FAILED_SCAN_TTL = 3600  # 1 hour cache for failed scans
