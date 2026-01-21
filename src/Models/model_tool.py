@@ -117,6 +117,66 @@ class ScoreBreakdown(BaseModel):
     trust: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class DominantDimension(str, Enum):
+    """Dominant scoring dimension."""
+
+    POPULARITY = "popularity"
+    SECURITY = "security"
+    MAINTENANCE = "maintenance"
+    TRUST = "trust"
+    BALANCED = "balanced"
+
+
+class ScoreAnalysis(BaseModel):
+    """Metadata for interpreting and explaining scores."""
+
+    dominant_dimension: DominantDimension = Field(
+        default=DominantDimension.BALANCED,
+        description="Which dimension is driving the score",
+    )
+    dominance_ratio: float = Field(
+        default=1.0,
+        ge=1.0,
+        description="Ratio of highest to second-highest dimension score",
+    )
+
+
+class FilterState(str, Enum):
+    """Tool visibility state after filtering."""
+
+    VISIBLE = "visible"
+    HIDDEN = "hidden"
+    EXCLUDED = "excluded"
+
+
+class FilterReasons:
+    """Standard filter reason codes."""
+
+    # Exclusion reasons (never shown)
+    LOW_DOWNLOADS = "LOW_DOWNLOADS"
+    STALE = "STALE"
+    DEPRECATED = "DEPRECATED"
+    CRITICAL_VULNERABILITY = "CRITICAL_VULNERABILITY"
+    POLICY_VIOLATION = "POLICY_VIOLATION"
+    SPAM = "SPAM"
+
+    # Hidden reasons (shown with --include-hidden)
+    EXPERIMENTAL = "EXPERIMENTAL"
+    LEGACY = "LEGACY"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    LOW_SCORE = "LOW_SCORE"
+
+
+class FilterStatus(BaseModel):
+    """Filtering state with reason codes for transparency."""
+
+    state: FilterState = Field(default=FilterState.VISIBLE, description="Visibility decision")
+    reasons: list[str] = Field(
+        default_factory=list,
+        description="Machine-readable reason codes from FilterReasons",
+    )
+
+
 class Tool(BaseModel):
     """Main tool model representing a scraped artifact."""
 
@@ -163,9 +223,14 @@ class Tool(BaseModel):
         default=None, ge=0.0, le=100.0, description="Weighted composite score 0-100"
     )
     score_breakdown: ScoreBreakdown = Field(default_factory=ScoreBreakdown)
+    score_analysis: ScoreAnalysis = Field(default_factory=ScoreAnalysis)
+
+    # Filtering
+    filter_status: FilterStatus = Field(default_factory=FilterStatus)
 
     # Metadata
     scraped_at: datetime = Field(default_factory=_utc_now, description="Scrape timestamp")
+    schema_version: str = Field(default="1.0", description="Schema version for migrations")
 
     def model_post_init(self, __context: object) -> None:
         """Set canonical name to tool name if not provided."""
