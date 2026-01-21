@@ -337,6 +337,115 @@ The collision risk is low because:
 - Fallback LLM classification uses description/tags (which differ for wrappers)
 - Override file handles remaining edge cases
 
+## Keyword Assignment
+
+After classification, tools receive structured keywords to improve discoverability and enable rich filtering.
+
+### Why Keywords Matter
+
+| Use Case | How Keywords Help |
+|----------|------------------|
+| **Search** | Keywords enhance search relevance beyond just name/description matching |
+| **Filtering** | Enable tag-based filtering (e.g., "show me all SQL databases") |
+| **Discovery** | Expose cross-cutting concerns (e.g., "cloud-native", "self-hosted") |
+| **Recommendations** | Power similarity-based recommendations via keyword overlap |
+
+### Keyword Taxonomy
+
+Keywords are organized hierarchically:
+
+```
+Category Keywords (shared across all subcategories)
+    ↓
+Subcategory Keywords (specific to subcategory)
+    ↓
+Cross-cutting Keywords (optional, span categories)
+```
+
+### Keyword Assignment Flow
+
+```
+┌─────────────────┐
+│ Classified Tool │ (category/subcategory assigned)
+└────────┬────────┘
+         ▼
+┌─────────────────┐     Found
+│ 1. Cache Lookup │────────────▶ Return cached keywords
+│ (by canonical)  │
+└────────┬────────┘
+         │ Miss
+         ▼
+┌─────────────────┐
+│ 2. Taxonomy     │
+│    Lookup       │
+│                 │
+│ Collect:        │
+│ - Category kws  │ ← Shared keywords (e.g., "database", "persistence")
+│ - Subcat kws    │ ← Specific keywords (e.g., "sql", "acid")
+│ - Cross-cutting │ ← Optional (e.g., "cloud-native")
+└────────┬────────┘
+         │
+         ▼
+      Cache → Return
+```
+
+### Example: `postgres`
+
+**Inputs:**
+- Category: `databases`
+- Subcategory: `relational`
+
+**Keywords assigned:**
+- From category: `database`, `datastore`, `persistence`
+- From subcategory: `sql`, `acid`, `transaction`, `query`, `schema`
+
+**Final keywords:**
+```
+["database", "datastore", "persistence", "sql", "acid", "transaction", "query", "schema"]
+```
+
+### Keyword Caching
+
+Like classifications, keyword assignments are cached by `canonical_name`:
+
+```json
+{
+  "postgres": {
+    "keywords": ["database", "sql", "relational", "acid", "postgresql"],
+    "assigned_at": "2024-01-15T10:30:00Z",
+    "taxonomy_version": "1.0"
+  }
+}
+```
+
+**Cache invalidation:**
+- `taxonomy_version` changes
+- `force=True` flag passed to keyword assigner
+- Manual cache deletion
+
+### Keyword Taxonomy Versioning
+
+The keyword taxonomy is versioned independently of the category taxonomy:
+
+| Version | Change Description |
+|---------|-------------------|
+| `1.0` | Initial keyword taxonomy with core infrastructure categories |
+
+When the taxonomy changes:
+1. `KEYWORD_TAXONOMY_VERSION` is incremented
+2. Cached keyword assignments are invalidated
+3. Tools are reassigned keywords on next pipeline run
+
+### Fallback Behavior
+
+If a category/subcategory is not in the keyword taxonomy:
+
+1. Use category name as keyword (e.g., `"databases"`)
+2. Use subcategory name as keyword (e.g., `"relational"`)
+3. Log warning for manual taxonomy expansion
+
+This ensures all tools get at least basic keywords.
+
 ## Configuration
 
 ```bash
@@ -345,7 +454,9 @@ OLLAMA_MODEL=llama3                      # Model for classification
 OLLAMA_HOST=http://localhost:11434       # Ollama endpoint
 CATEGORY_CACHE_PATH=data/cache/categories.json
 CATEGORY_OVERRIDES_PATH=data/overrides.json
+KEYWORD_CACHE_PATH=data/cache/keywords.json
 MIN_CONFIDENCE_THRESHOLD=0.7             # Reject classifications below this
+KEYWORD_TAXONOMY_VERSION=1.0             # Current keyword taxonomy version
 ```
 
 ## CLI Commands

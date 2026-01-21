@@ -48,6 +48,17 @@ MVP mode is the default. Start here to validate data quality and UX before enabl
 
 Multiple artifacts may represent the same underlying tool (e.g., `docker_hub:library/postgres`, `helm:bitnami/postgresql`, `github:postgres/postgres`). The system assigns each artifact a unique ID and groups related artifacts under a `canonical_name`.
 
+### Keyword Taxonomy
+
+Tools are automatically enriched with structured keywords for better discoverability and filtering:
+
+- **Taxonomy-based assignment**: Keywords are derived from a curated taxonomy aligned with tool categories
+- **Multi-source keywords**: Tools receive relevant keywords from their category, subcategory, and cross-cutting concerns
+- **Cached for performance**: Keyword assignments are cached to minimize redundant processing
+- **Search integration**: Keywords enhance search relevance and enable tag-based filtering
+
+Example: `postgres` receives keywords: `database`, `sql`, `relational`, `acid`, `postgresql`
+
 ### Quality Scoring
 
 Tools are scored on four dimensions with configurable weights:
@@ -81,16 +92,18 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 
 ## Roadmap
 
-### Phase 1: Docker Hub MVP (Current)
+### Phase 1: Docker Hub MVP (Complete)
 
 - [x] Project scaffolding and data models
 - [x] Docker Hub scraper with resilience
-- [x] Categorization
+- [x] Categorization with keyword taxonomy
+- [x] Keyword assignment system
 - [x] File-based storage layer
 - [x] Centralized caching
 - [x] Popularity and maintenance evaluators
 - [x] Pre/post filtering logic
-- [ ] Basic CLI (scrape, search, top, export)
+- [x] Basic CLI (scrape, search, top, export)
+- [x] Comprehensive test suite
 
 ### Future Phases
 

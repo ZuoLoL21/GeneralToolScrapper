@@ -522,7 +522,182 @@ class IdentityResolution:
 ```python
 IDENTITY_VERSION: Final[str] = "1.0"
 TAXONOMY_VERSION: Final[str] = "1.0"
+KEYWORD_TAXONOMY_VERSION: Final[str] = "1.0"
 ```
+
+## Keyword Models
+
+All keyword-related models are in `src/categorization/keyword_taxonomy.py` and `src/categorization/keyword_assigner.py`.
+
+### KeywordTaxonomy
+
+The keyword taxonomy defines structured keywords organized by category and subcategory.
+
+```python
+@dataclass(frozen=True)
+class KeywordDefinition:
+    """A single keyword with metadata."""
+    keyword: str
+    description: str
+    aliases: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class SubcategoryKeywords:
+    """Keywords for a specific subcategory."""
+    subcategory_name: str
+    keywords: tuple[KeywordDefinition, ...]
+    shared_keywords: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class CategoryKeywords:
+    """Keywords for a category with subcategories."""
+    category_name: str
+    category_keywords: tuple[KeywordDefinition, ...]  # Keywords shared across all subcategories
+    subcategories: tuple[SubcategoryKeywords, ...]
+
+    def get_subcategory(self, name: str) -> SubcategoryKeywords | None: ...
+```
+
+**Design decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| Frozen dataclasses | Immutable taxonomy ensures consistency across runs |
+| Tuple types | Immutability prevents accidental modifications |
+| Hierarchical structure | Mirrors category/subcategory structure for easy lookup |
+| Keyword descriptions | Documents intent and helps with future LLM-based expansion |
+| Aliases | Supports multiple ways to express the same concept |
+
+### KeywordAssignmentResult
+
+Result of assigning keywords to a tool.
+
+```python
+@dataclass
+class KeywordAssignmentResult:
+    """Result of keyword assignment."""
+    keywords: list[str]
+    source: str  # "cache" | "taxonomy" | "fallback"
+    cache_entry: KeywordAssignmentCacheEntry | None = None
+```
+
+**Source meanings:**
+
+| Source | Description |
+|--------|-------------|
+| `cache` | Keywords loaded from cache |
+| `taxonomy` | Keywords assigned from keyword taxonomy |
+| `fallback` | Default keywords when category not in taxonomy |
+
+### KeywordAssignmentCacheEntry
+
+Cache entry for keyword assignments.
+
+```python
+class KeywordAssignmentCacheEntry(BaseModel):
+    """
+    Cache entry for keyword assignments.
+
+    Design decisions:
+    - Keyed by canonical_name for consistency with classification cache
+    - Includes taxonomy_version for invalidation on taxonomy changes
+    - assigned_at tracks cache freshness
+    """
+
+    keywords: list[str]
+    assigned_at: datetime
+    taxonomy_version: str = Field(default=KEYWORD_TAXONOMY_VERSION)
+```
+
+**Cache invalidation:**
+
+Cache entries are invalidated when:
+- `taxonomy_version` changes (taxonomy updated)
+- `force=True` is passed to keyword assigner
+- Cache file is manually deleted
+
+### Integration with Tool Model
+
+Keywords are stored directly on the Tool model:
+
+```python
+class Tool(BaseModel):
+    # ... other fields ...
+
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="Structured keywords from keyword taxonomy"
+    )
+```
+
+**Why keywords are on Tool, not a separate model:**
+
+- Keywords are an intrinsic property of the tool, like tags
+- Simplifies querying and filtering in CLI
+- Enables keyword-enhanced search without joins
+- Keywords are small (typically 5-15 per tool) so storage overhead is minimal
+
+### Keyword Assignment Flow
+
+```
+┌─────────────────┐
+│ Classified Tool │
+└────────┬────────┘
+         ▼
+┌─────────────────┐     Found
+│ 1. Cache Lookup │────────────▶ Return cached keywords
+│ (by canonical)  │
+└────────┬────────┘
+         │ Miss
+         ▼
+┌─────────────────┐     Found
+│ 2. Taxonomy     │────────────▶ Assign keywords from taxonomy
+│    Lookup       │               - Category keywords (shared)
+│ (by category/   │               - Subcategory keywords (specific)
+│  subcategory)   │               - Cross-cutting keywords (if any)
+└────────┬────────┘               Cache → Return
+         │ Not Found
+         ▼
+┌─────────────────┐
+│ 3. Fallback     │────────────▶ Return category/subcategory as keywords
+│ (use category)  │
+└─────────────────┘
+```
+
+### Keyword Taxonomy Structure
+
+The keyword taxonomy is organized as:
+
+```
+databases (CategoryKeywords)
+├── category_keywords: [database, datastore, persistence]
+└── subcategories:
+    ├── relational
+    │   └── keywords: [sql, acid, transaction, query, schema]
+    ├── document
+    │   └── keywords: [nosql, json, flexible-schema]
+    └── cache
+        └── keywords: [inmemory, keyvalue, fast, ephemeral]
+
+monitoring (CategoryKeywords)
+├── category_keywords: [observability, monitoring, telemetry]
+└── subcategories:
+    ├── metrics
+    │   └── keywords: [prometheus, timeseries, alerting]
+    └── logging
+        └── keywords: [logs, events, aggregation]
+```
+
+**Example keyword assignment for `postgres`:**
+
+- Category: `databases`
+- Subcategory: `relational`
+- Assigned keywords:
+  - From category: `database`, `datastore`, `persistence`
+  - From subcategory: `sql`, `acid`, `transaction`, `query`, `schema`
+  - Total: `["database", "datastore", "persistence", "sql", "acid", "transaction", "query", "schema"]`
 
 ## Scoring Context Models
 

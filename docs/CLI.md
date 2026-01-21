@@ -26,23 +26,23 @@ Options:
 
 ## Commands Overview
 
-| Command | Description |
-|---------|-------------|
-| `scrape` | Fetch tools from source APIs |
-| `search` | Full-text search across tools |
-| `top` | Show top-scoring tools |
-| `list` | List tools with filtering |
-| `basis` | Generate basis (one tool per subcategory) |
-| `compare` | Compare tools side-by-side |
-| `explain` | Show scoring details for a tool |
-| `categorize` | Classify tools into categories |
-| `categories` | Show category statistics |
-| `identity` | Show identity resolution details |
-| `scan` | Run security scan on a tool |
-| `export` | Export data to file |
-| `health` | Check external dependencies |
-| `cache` | Manage caches |
-| `config` | Show configuration |
+| Command | Description | Status |
+|---------|-------------|--------|
+| `scrape` | Fetch tools from source APIs | ✅ Implemented |
+| `search` | Full-text search across tools | ✅ Implemented |
+| `top` | Show top-scoring tools | ✅ Implemented |
+| `export` | Export data to file | ✅ Implemented |
+| `list` | List tools with filtering | ⏳ Planned |
+| `basis` | Generate basis (one tool per subcategory) | ⏳ Planned |
+| `compare` | Compare tools side-by-side | ⏳ Planned |
+| `explain` | Show scoring details for a tool | ⏳ Planned |
+| `categorize` | Classify tools into categories | ⏳ Planned |
+| `categories` | Show category statistics | ⏳ Planned |
+| `identity` | Show identity resolution details | ⏳ Planned |
+| `scan` | Run security scan on a tool | ⏳ Planned |
+| `health` | Check external dependencies | ⏳ Planned |
+| `cache` | Manage caches | ⏳ Planned |
+| `config` | Show configuration | ⏳ Planned |
 
 ## Scraping Commands
 
@@ -80,27 +80,29 @@ gts scrape --source docker_hub --limit 100
 
 ```
 Scraping docker_hub...
-  [████████████████████████████████] 1,234 tools
-  Cached: 892, Fresh: 342
 
-Pre-filtering...
-  Removed: 156 (low downloads), 23 (deprecated), 12 (spam)
-  Remaining: 1,043 tools
+Step 1/8: Scraping tools from source...
+Step 2/8: Pre-filtering junk tools...
+Step 3/8: Classifying tools...
+Step 4/8: Assigning keywords...
+Step 5/8: Computing statistics...
+Step 6/8: Evaluating and scoring tools...
+Step 7/8: Post-filtering based on scores and policy...
+Step 8/8: Storing processed data...
 
-Categorizing...
-  From cache: 980, LLM classified: 63, Needs review: 4
+Pipeline complete!
+Processed 920 tools
 
-Computing stats...
-  Categories: 10, Subcategories: 47
-
-Scoring...
-  Scored: 1,043 tools
-
-Post-filtering...
-  Excluded: 89 (low score), Hidden: 34 (experimental)
-  Final: 920 visible tools
-
-Saved to data/raw/docker_hub/2024-01-15_scrape.json
+                 Summary by Category
+┏━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┓
+┃ Category   ┃ Count ┃ Avg Score ┃
+┡━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━┩
+│ databases  │   234 │      78.5 │
+│ monitoring │   187 │      75.2 │
+│ web        │   156 │      82.1 │
+│ messaging  │    89 │      71.3 │
+│ ...        │   ... │       ... │
+└────────────┴───────┴───────────┘
 ```
 
 ## Discovery Commands
@@ -147,16 +149,14 @@ gts search "alpine" --include-hidden
 **Output:**
 
 ```
-Search results for "postgres" (12 matches)
-
-  #  Score  Tool                              Category
-  1  92     postgres                          databases/relational
-            docker_hub:library/postgres
-  2  88     postgresql                        databases/relational
-            helm:bitnami/postgresql
-  3  85     postgres-exporter                 monitoring/metrics
-            docker_hub:prometheuscommunity/postgres-exporter
-  ...
+              Search Results for 'postgres' (3 matches)
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Name              ┃ Category             ┃ Score ┃ Keywords               ┃ Description                            ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ postgres          │ databases/relational │  92.0 │ database, sql, rela... │ PostgreSQL object-relational databa... │
+│ postgres-exporter │ monitoring/metrics   │  85.0 │ prometheus, expor...   │ Prometheus exporter for PostgreSQL ... │
+│ postgrest         │ web/server           │  78.5 │ api, rest, postgr...   │ REST API for PostgreSQL databases      │
+└───────────────────┴──────────────────────┴───────┴────────────────────────┴────────────────────────────────────────┘
 ```
 
 ### `gts top`
@@ -252,21 +252,17 @@ gts basis --profile production --output prod-basis.json
 **Output:**
 
 ```
-Basis: One tool per subcategory
-
-databases/relational:     postgres (92)
-databases/document:       mongodb (90)
-databases/key-value:      redis (95)
-databases/graph:          neo4j (84)
-databases/time-series:    influxdb (88)
-databases/search:         elasticsearch (91)
-
-monitoring/metrics:       prometheus (94)
-monitoring/logging:       loki (87)
-monitoring/visualization: grafana (96)
-...
-
-Total: 47 tools across 10 categories
+                          Top 10 Tools
+┏━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━┳━━━━┳━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Rank ┃ Name            ┃ Category             ┃ Score ┃ Pop┃ Sec┃ Maint┃ Trust ┃ Keywords              ┃
+┡━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━╇━━━━╇━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
+│    1 │ nginx           │ web/server           │  95.0 │  92│  98│  95  │  100  │ webserver, proxy, ... │
+│    2 │ postgres        │ databases/relational │  92.0 │  88│  95│  98  │  100  │ database, sql, rel... │
+│    3 │ redis           │ databases/cache      │  90.5 │  95│  85│  92  │  100  │ cache, keyvalue, i... │
+│    4 │ grafana         │ monitoring/visual... │  89.2 │  78│  90│  95  │   95  │ visualization, das... │
+│    5 │ prometheus      │ monitoring/metrics   │  88.7 │  85│  88│  91  │   95  │ metrics, timeserie... │
+│  ... │ ...             │ ...                  │   ... │ ...│ ...│  ... │  ...  │ ...                   │
+└──────┴─────────────────┴──────────────────────┴───────┴────┴────┴──────┴───────┴───────────────────────┘
 ```
 
 ### `gts compare`
