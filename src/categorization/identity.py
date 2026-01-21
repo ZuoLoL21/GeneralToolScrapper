@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Final
 
 from src.categorization.human_maintained import KNOWN_CANONICALS
-from src.models.model_classification import IDENTITY_VERSION, IdentityResolution, ResolutionSource
+from src.models.model_classification import IdentityResolution, ResolutionSource
 
 logger = logging.getLogger(__name__)
 

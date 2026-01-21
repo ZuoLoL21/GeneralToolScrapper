@@ -38,10 +38,7 @@ GeneralToolScraper/
 │   │
 │   ├── models/                   # Pydantic data models
 │   │   ├── __init__.py
-│   │   ├── tool.py               # Tool, Metrics, Security, Maintainer, Identity
-│   │   ├── classification.py    # Classification, ClassificationOverride
-│   │   ├── scoring.py            # EvalContext, ScoreBreakdown, ToolScore
-│   │   └── storage.py            # DistributionStats, CategoryStats, GlobalStats
+│   │   └── ...
 │   │
 │   ├── scrapers/                 # API clients for each source
 │   │   ├── __init__.py
@@ -70,7 +67,10 @@ GeneralToolScraper/
 │   ├── storage/                  # Data persistence
 │   │   ├── __init__.py
 │   │   ├── file_manager.py       # JSON file operations
-│   │   └── cache.py              # TTL-based caching
+│   │   └── cache                 # Interchangeable caching solutions
+│   │        ├── redis.py         # TTL-based caching
+│   │        ├── file_caching.py  # Permanent file caching
+│   │        └── base.py          # Base caching layer
 │   │
 │   └── filters/                  # Pre and post filtering
 │       ├── __init__.py

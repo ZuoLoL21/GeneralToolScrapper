@@ -49,7 +49,6 @@ htmlcov/
 *.db
 *.sqlite
 data/
-cache/
 
 # OS
 .DS_Store
