@@ -71,3 +71,53 @@ Perfect! The evaluators module has been successfully implemented. Here's a
 
   All evaluators follow the SCORING.md specification exactly and are ready for
   integration with the rest of the GeneralToolScraper pipeline!
+
+
+  =========================================
+
+  Perfect! I've successfully implemented the pre/post filtering logic as specified in the plan. Here's what was created:
+
+  Files Created
+
+  1. src/filters/init.py - Module exports for PreFilter and PostFilter
+  2. src/filters/pre_filter.py - Pre-filtering logic (599 lines)
+  3. src/filters/post_filter.py - Post-filtering logic (391 lines)
+
+  Implementation Summary
+
+  PreFilter (src/filters/pre_filter.py:18-143)
+
+  Filters obvious junk before statistics computation to prevent pollution of category distributions:
+
+  Exclusion checks:
+  - Zero metrics (downloads == 0 AND stars == 0)
+  - Deprecated tools
+  - Spam patterns in name/description (test, demo, example, placeholder, etc.)
+  - Low-activity forks (placeholder for future GitHub implementation)
+
+  Test results: Successfully filtered 4/6 test tools (2 valid tools passed)
+
+  PostFilter (src/filters/post_filter.py:18-165)
+
+  Applies policy-based filtering after scoring using computed quality scores:
+
+  Exclusion checks (never shown):
+  - Stale tools (>365 days since update)
+  - Low downloads (<1000) or low stars (<100)
+  - Very low score (<15.0, half of min_score)
+
+  Hidden checks (shown with --include-hidden):
+  - Experimental lifecycle
+  - Legacy lifecycle
+  - Low score (30.0 ≤ score < 45.0)
+
+  Test results: Successfully categorized 8 test tools (1 visible, 4 hidden, 3 excluded)
+
+  Verification
+
+  Both filters include working main() functions demonstrating their functionality:
+
+  python -m src.filters.pre_filter   # Pre-filter demo
+  python -m src.filters.post_filter  # Post-filter demo
+
+  The implementation follows the established patterns from the evaluators and is ready for integration into the pipeline orchestration.

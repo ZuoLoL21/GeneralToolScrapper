@@ -89,8 +89,8 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 - [x] File-based storage layer
 - [x] Centralized caching
 - [x] Popularity and maintenance evaluators
+- [x] Pre/post filtering logic
 - [ ] Basic CLI (scrape, search, top, export)
-- [ ] Pre/post filtering logic
 
 ### Future Phases
 
