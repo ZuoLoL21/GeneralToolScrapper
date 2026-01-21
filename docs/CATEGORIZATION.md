@@ -31,28 +31,140 @@ In MVP mode (`GTS_MODE=mvp`), LLM classification is disabled. Tools are categori
 
 ## Taxonomy
 
-The system uses a fixed two-level taxonomy. The LLM must select from this predefined list:
+The system uses a fixed two-level taxonomy (v1.0) with **15 categories** and **70 subcategories**. The LLM must select from this predefined list:
 
 | Category | Subcategories |
 |----------|---------------|
-| **databases** | relational (postgres, mysql), document (mongodb, couchdb), key-value (redis, memcached), graph (neo4j, dgraph), time-series (influxdb, timescaledb), search (elasticsearch, meilisearch) |
-| **monitoring** | metrics (prometheus, telegraf), logging (loki, fluentd), tracing (jaeger, zipkin), visualization (grafana, kibana), alerting (alertmanager) |
-| **web** | server (nginx, apache, caddy), proxy (traefik, kong), load-balancer (haproxy, envoy) |
-| **messaging** | queue (rabbitmq, activemq), streaming (kafka, redpanda), pubsub (nats, redis-pubsub) |
-| **ci-cd** | build (jenkins, drone), deploy (argocd, flux), registry (harbor, nexus) |
-| **security** | secrets (vault, sealed-secrets), auth (keycloak, oauth2-proxy), scanning (trivy, clair) |
-| **storage** | object (minio, seaweedfs), file (nfs, glusterfs), backup (restic, velero) |
-| **networking** | dns (coredns, pihole), vpn (wireguard, openvpn), service-mesh (istio, linkerd) |
-| **runtime** | container (docker, containerd, podman), serverless (openfaas, knative), orchestration (kubernetes, nomad) |
-| **development** | ide (code-server, jupyter), testing (selenium, playwright), debugging (delve, gdb), cli (kubectl, aws-cli), sdk (boto3, google-cloud-sdk) |
+| **databases** | relational, document, key-value, graph, time-series, search, admin, migration, nosql |
+| **monitoring** | metrics, logging, tracing, visualization, alerting, analytics |
+| **web** | server, proxy, load-balancer, application-server, cache, utilities |
+| **messaging** | queue, streaming, pubsub |
+| **ci-cd** | build, deploy, registry |
+| **security** | secrets, auth, scanning |
+| **storage** | object, file, backup |
+| **networking** | dns, vpn, service-mesh, api-gateway |
+| **runtime** | container, serverless, orchestration |
+| **development** | ide, testing, debugging, cli, sdk, build-tools, quality |
+| **base-images** | linux, minimal |
+| **languages** | compiled, interpreted, functional, jvm, scientific, alternative |
+| **content** | cms, wiki, blog, collaboration, community |
+| **business** | erp, bpm, crm, project, document, integration, gis |
+| **communication** | chat, voice, email |
+
+### Detailed Category Breakdown
+
+#### databases (9 subcategories)
+- **relational**: SQL databases (postgres, mysql, mariadb)
+- **document**: Document-oriented databases (mongodb, couchdb)
+- **key-value**: Key-value stores (redis, memcached)
+- **graph**: Graph databases (neo4j, dgraph)
+- **time-series**: Time-series databases (influxdb, timescaledb)
+- **search**: Search engines (elasticsearch, meilisearch)
+- **admin**: Database administration tools (adminer, phpmyadmin)
+- **migration**: Database migration tools (liquibase, flyway)
+- **nosql**: Other NoSQL databases (rethinkdb, aerospike, cassandra)
+
+#### monitoring (6 subcategories)
+- **metrics**: Metrics collection (prometheus, telegraf)
+- **logging**: Log aggregation (loki, fluentd, logstash)
+- **tracing**: Distributed tracing (jaeger, zipkin)
+- **visualization**: Dashboards (grafana, kibana)
+- **alerting**: Alert management (alertmanager)
+- **analytics**: Web analytics (matomo, plausible)
+
+#### web (6 subcategories)
+- **server**: Web servers (nginx, apache, caddy)
+- **proxy**: Reverse proxies (traefik, kong, envoy)
+- **load-balancer**: Load balancers (haproxy, nginx-lb)
+- **application-server**: Application servers (jetty, tomcat, glassfish, websphere-liberty)
+- **cache**: Web caching (varnish, squid)
+- **utilities**: Web utilities (yourls - URL shortener)
+
+#### messaging (3 subcategories)
+- **queue**: Message queues (rabbitmq, activemq)
+- **streaming**: Event streaming (kafka, redpanda, pulsar)
+- **pubsub**: Pub/sub systems (nats, mqtt, mosquitto)
+
+#### ci-cd (3 subcategories)
+- **build**: Build systems (jenkins, drone, gitlab-runner)
+- **deploy**: Deployment tools (argocd, flux, spinnaker)
+- **registry**: Artifact registries (harbor, nexus, artifactory)
+
+#### security (3 subcategories)
+- **secrets**: Secrets management (vault, sealed-secrets)
+- **auth**: Authentication (keycloak, oauth2-proxy, dex)
+- **scanning**: Security scanning (trivy, clair, falco)
+
+#### storage (3 subcategories)
+- **object**: Object storage (minio, seaweedfs, ceph)
+- **file**: File systems (nfs, glusterfs)
+- **backup**: Backup solutions (restic, velero, borg)
+
+#### networking (4 subcategories)
+- **dns**: DNS servers (coredns, pihole, bind)
+- **vpn**: VPN solutions (wireguard, openvpn)
+- **service-mesh**: Service mesh (istio, linkerd, consul)
+- **api-gateway**: API gateways (krakend, kong, tyk)
+
+#### runtime (3 subcategories)
+- **container**: Container runtimes (docker, containerd, podman)
+- **serverless**: Serverless platforms (openfaas, knative, fission)
+- **orchestration**: Orchestration (kubernetes, nomad, swarm)
+
+#### development (7 subcategories)
+- **ide**: Development environments (code-server, jupyter)
+- **testing**: Testing tools (selenium, playwright, cypress)
+- **debugging**: Debugging tools (delve, gdb)
+- **cli**: CLI tools (kubectl, aws-cli, terraform)
+- **sdk**: SDKs and libraries
+- **build-tools**: Build and package management (gradle, maven, composer, npm)
+- **quality**: Code quality and analysis (sonarqube, eslint)
+
+#### base-images (2 subcategories)
+- **linux**: Linux distributions (ubuntu, centos, debian, alpine, amazonlinux, busybox, etc.)
+- **minimal**: Minimal/scratch images (scratch, distroless, cirros)
+
+#### languages (6 subcategories)
+- **compiled**: Compiled languages (java, golang, rust, gcc, swift)
+- **interpreted**: Interpreted languages (python, node, ruby, php, perl, bash)
+- **functional**: Functional languages (haskell, clojure, elixir, erlang, scala)
+- **jvm**: JVM-based languages (java, scala, clojure, jruby)
+- **scientific**: Scientific computing (julia, pypy, r)
+- **alternative**: Alternative/specialized runtimes (haxe, lua)
+
+#### content (5 subcategories)
+- **cms**: Content management systems (wordpress, drupal, joomla, ghost)
+- **wiki**: Wiki platforms (mediawiki, xwiki)
+- **blog**: Blogging platforms (ghost)
+- **collaboration**: File sharing (owncloud, nextcloud, plone)
+- **community**: Community platforms (backdrop, known, friendica)
+
+#### business (7 subcategories)
+- **erp**: Enterprise resource planning (odoo)
+- **bpm**: Business process management (bonita, camunda)
+- **crm**: Customer relationship management (monica, suitecrm)
+- **project**: Project management (redmine, taiga)
+- **document**: Document management (nuxeo, alfresco, silverpeas)
+- **integration**: Business integration platforms (convertigo, talend)
+- **gis**: Geographic information systems (geonetwork, geoserver)
+
+#### communication (3 subcategories)
+- **chat**: Team chat and messaging (rocket.chat, mattermost, znc)
+- **voice**: Voice/video communication (teamspeak, mumble, jitsi)
+- **email**: Email servers and management (postfixadmin, postfix)
 
 ### Taxonomy Versioning
 
-The taxonomy is versioned. When the taxonomy changes:
+The taxonomy is versioned (current: **v1.0**). When the taxonomy changes:
 
 1. All tools get a new `taxonomy_version` field
 2. Tools with outdated `taxonomy_version` are re-categorized
 3. Cache entries for affected canonical names are invalidated
+
+To view the current taxonomy:
+```bash
+python -m src.categorization.human_maintained
+```
 
 ## Multiple Category Assignment
 
@@ -425,16 +537,42 @@ Like classifications, keyword assignments are cached by `canonical_name`:
 
 ### Keyword Taxonomy Versioning
 
-The keyword taxonomy is versioned independently of the category taxonomy:
+The keyword taxonomy is versioned independently of the category taxonomy (current: **v2.0**):
 
 | Version | Change Description |
 |---------|-------------------|
-| `1.0` | Initial keyword taxonomy with core infrastructure categories |
+| `1.0` | Initial keyword taxonomy with core infrastructure categories (12 categories, ~100 keywords) |
+| `2.0` | Extended taxonomy with application types, use cases, and licenses (15 categories, 173 keywords) |
 
-When the taxonomy changes:
+#### v2.0 Keyword Categories (173 total keywords)
+
+| Category | Count | Examples |
+|----------|-------|----------|
+| **platform** | 16 | desktop, cloud-native, jvm, cms-platform, self-hosted |
+| **architecture** | 10 | distributed, microservices, event-driven, high-throughput |
+| **protocol** | 12 | rest-api, grpc, websocket, mqtt, amqp |
+| **optimization** | 8 | lightweight, memory-efficient, high-performance |
+| **data** | 10 | structured, real-time, streaming, geospatial |
+| **persistence** | 9 | persistent, in-memory, replicated, cached |
+| **deployment** | 8 | containerized, kubernetes-native, stateless |
+| **security** | 10 | encrypted, mtls, rbac, sso, compliance |
+| **integration** | 14 | plugin-system, webhook, etl, workflow-engine |
+| **ecosystem** | 16 | java-ecosystem, php-ecosystem, wordpress-ecosystem, scientific-computing |
+| **governance** | 8 | open-source, commercial, community-driven |
+| **maturity** | 9 | production-ready, battle-tested, stable |
+| **application-type** | 18 | cms, blog, wiki, erp, crm, forum, ecommerce |
+| **use-case** | 16 | content-publishing, team-collaboration, api-management |
+| **license-type** | 8 | mit, apache-2, gpl, proprietary, dual-license |
+
+When the keyword taxonomy changes:
 1. `KEYWORD_TAXONOMY_VERSION` is incremented
 2. Cached keyword assignments are invalidated
 3. Tools are reassigned keywords on next pipeline run
+
+To view the current keyword taxonomy:
+```bash
+python -m src.categorization.keyword_taxonomy
+```
 
 ### Fallback Behavior
 
@@ -456,7 +594,8 @@ CATEGORY_CACHE_PATH=data/cache/categories.json
 CATEGORY_OVERRIDES_PATH=data/overrides.json
 KEYWORD_CACHE_PATH=data/cache/keywords.json
 MIN_CONFIDENCE_THRESHOLD=0.7             # Reject classifications below this
-KEYWORD_TAXONOMY_VERSION=1.0             # Current keyword taxonomy version
+TAXONOMY_VERSION=1.0                     # Current category taxonomy version
+KEYWORD_TAXONOMY_VERSION=2.0             # Current keyword taxonomy version
 ```
 
 ## CLI Commands

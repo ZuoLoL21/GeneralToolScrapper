@@ -9,7 +9,7 @@ search and filtering.
 from typing import Final
 
 # Keyword taxonomy version for cache invalidation
-KEYWORD_TAXONOMY_VERSION: Final[str] = "1.0"
+KEYWORD_TAXONOMY_VERSION: Final[str] = "2.0"
 
 # Define all keyword categories with keywords
 KEYWORD_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
@@ -24,6 +24,12 @@ KEYWORD_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
         "serverless",
         "edge",
         "embedded",
+        "jvm",
+        "nodejs-platform",
+        "python-runtime",
+        "container-native",
+        "cms-platform",
+        "self-hosted",
     ),
     "architecture": (
         "distributed",
@@ -115,6 +121,12 @@ KEYWORD_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
         "api-gateway",
         "middleware",
         "adapter",
+        "theme-system",
+        "module-system",
+        "connector",
+        "etl",
+        "workflow-engine",
+        "process-automation",
     ),
     "ecosystem": (
         "polyglot",
@@ -125,6 +137,14 @@ KEYWORD_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
         "rust-ecosystem",
         "dotnet-ecosystem",
         "cncf",
+        "php-ecosystem",
+        "ruby-ecosystem",
+        "jvm-ecosystem",
+        "beam-ecosystem",
+        "functional-ecosystem",
+        "scientific-computing",
+        "wordpress-ecosystem",
+        "drupal-ecosystem",
     ),
     "governance": (
         "open-source",
@@ -146,6 +166,55 @@ KEYWORD_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
         "stable",
         "alpha",
         "beta",
+    ),
+    "application-type": (
+        "cms",
+        "blog",
+        "wiki",
+        "forum",
+        "ecommerce",
+        "crm",
+        "erp",
+        "bpm",
+        "project-management",
+        "document-management",
+        "collaboration",
+        "chat",
+        "analytics",
+        "monitoring",
+        "gateway",
+        "runtime",
+        "base-image",
+        "build-tool",
+        "quality-tool",
+    ),
+    "use-case": (
+        "content-publishing",
+        "knowledge-management",
+        "team-collaboration",
+        "business-automation",
+        "customer-management",
+        "issue-tracking",
+        "web-hosting",
+        "api-management",
+        "data-storage",
+        "data-processing",
+        "application-runtime",
+        "container-building",
+        "code-building",
+        "quality-assurance",
+        "security-scanning",
+        "network-routing",
+    ),
+    "license-type": (
+        "mit",
+        "apache-2",
+        "gpl",
+        "lgpl",
+        "bsd",
+        "proprietary",
+        "source-available",
+        "dual-license",
     ),
 }
 
@@ -230,14 +299,35 @@ def main() -> None:
     print(f"   Total categories: {len(KEYWORD_CATEGORIES)}")
     print(f"   Taxonomy version: {KEYWORD_TAXONOMY_VERSION}\n")
 
+    # Show new keyword categories (v2.0)
+    print("2. New keyword categories in v2.0:")
+    new_categories = ["application-type", "use-case", "license-type"]
+    for cat in new_categories:
+        keywords = get_keywords_by_category(cat)
+        print(f"   - {cat}: {', '.join(keywords[:5])}...")
+    print()
+
+    # Show extended categories
+    print("3. Extended categories in v2.0:")
+    extended_examples = {
+        "platform": ["jvm", "cms-platform", "enterprise"],
+        "ecosystem": ["php-ecosystem", "scientific-computing", "wordpress-ecosystem"],
+        "integration": ["theme-system", "workflow-engine", "etl"],
+    }
+    for cat, new_keywords in extended_examples.items():
+        available = [kw for kw in new_keywords if is_valid_keyword(kw)]
+        print(f"   - {cat}: Added {', '.join(available)}")
+    print()
+
     # Validate keywords
-    print("2. Validate keywords:")
+    print("4. Validate keywords (including new ones):")
     test_keywords = [
         "cloud-native",
-        "distributed",
-        "grpc",
+        "cms",
+        "content-publishing",
+        "open-source",
+        "jvm",
         "invalid-keyword",
-        "containerized",
     ]
     for kw in test_keywords:
         is_valid = is_valid_keyword(kw)
@@ -247,8 +337,8 @@ def main() -> None:
     print()
 
     # Get keywords by category
-    print("3. Get keywords by category:")
-    test_categories = ["platform", "protocol", "invalid-category"]
+    print("5. Get keywords by category:")
+    test_categories = ["platform", "application-type", "use-case", "invalid-category"]
     for cat in test_categories:
         keywords = get_keywords_by_category(cat)
         if keywords:

@@ -44,18 +44,21 @@ class TestKeywordTaxonomyStructure:
             "ecosystem",
             "governance",
             "maturity",
+            "application-type",
+            "use-case",
+            "license-type",
         ]
         actual = get_all_categories()
-        assert len(actual) == 12, f"Expected 12 categories, got {len(actual)}"
+        assert len(actual) == 15, f"Expected 15 categories, got {len(actual)}"
         for cat in expected:
             assert cat in actual, f"Expected category '{cat}' not found"
 
     def test_keyword_count(self) -> None:
-        """Test that we have approximately 100 keywords as specified."""
+        """Test that we have approximately 175 keywords (v2.0 expanded taxonomy)."""
         all_keywords = get_all_keywords()
-        # Plan specifies ~100 keywords
-        assert len(all_keywords) >= 90, f"Expected ~100 keywords, got {len(all_keywords)}"
-        assert len(all_keywords) <= 130, f"Expected ~100 keywords, got {len(all_keywords)}"
+        # v2.0 taxonomy has ~175 keywords
+        assert len(all_keywords) >= 160, f"Expected ~175 keywords, got {len(all_keywords)}"
+        assert len(all_keywords) <= 200, f"Expected ~175 keywords, got {len(all_keywords)}"
 
     def test_keywords_are_unique(self) -> None:
         """Test that keywords are unique across all categories."""
@@ -97,7 +100,7 @@ class TestGetAllCategories:
     def test_returns_list(self) -> None:
         categories = get_all_categories()
         assert isinstance(categories, list)
-        assert len(categories) == 12
+        assert len(categories) == 15
 
     def test_includes_expected_categories(self) -> None:
         categories = get_all_categories()
