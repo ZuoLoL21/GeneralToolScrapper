@@ -373,6 +373,30 @@ class FilterReasons:
 
 ## Classification Models
 
+All classification-related models are in `src/models/model_classification.py`.
+
+### Taxonomy Models
+
+```python
+@dataclass(frozen=True)
+class Subcategory:
+    """A subcategory within a category."""
+    name: str
+    description: str
+    keywords: tuple[str, ...]  # Keywords for tag-based matching
+
+
+@dataclass(frozen=True)
+class Category:
+    """A top-level category containing subcategories."""
+    name: str
+    description: str
+    subcategories: tuple[Subcategory, ...]
+
+    def get_subcategory(self, name: str) -> Subcategory | None: ...
+    def has_subcategory(self, name: str) -> bool: ...
+```
+
 ### Classification
 
 Result of classifying a tool.
@@ -390,7 +414,35 @@ class Classification(BaseModel):
     primary_category: str
     primary_subcategory: str
     secondary_categories: list[str] = Field(default_factory=list)
-    confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+```
+
+### ClassificationResult
+
+Classifier output with metadata.
+
+```python
+@dataclass
+class ClassificationResult:
+    """Result of classifying a tool."""
+    classification: Classification
+    confidence: float
+    source: str  # "cache" | "override" | "heuristic" | "fallback"
+    needs_review: bool = False
+    cache_entry: ClassificationCacheEntry | None = None
+```
+
+### TagMatch
+
+Tag matching for heuristic classification.
+
+```python
+@dataclass
+class TagMatch:
+    """A matched tag with its category/subcategory."""
+    tag: str
+    category: str
+    subcategory: str
+    is_exact: bool = False  # Exact keyword match vs partial
 ```
 
 ### ClassificationOverride
@@ -427,18 +479,49 @@ class ClassificationCacheEntry(BaseModel):
     Cache entry wrapping classification with provenance.
 
     Design decisions:
-    - `prompt_hash` enables automatic invalidation when prompt changes
-    - `model` tracks which LLM version produced the classification
+    - `source` tracks how the classification was determined
+    - Enables cache invalidation and audit trails
     """
 
     classification: Classification
     classified_at: datetime
-    source: Literal["llm", "override", "manual", "fallback"]
+    source: str  # "llm" | "override" | "heuristic" | "fallback"
+```
 
-    # LLM provenance (only for source="llm")
-    prompt_hash: str | None = Field(default=None)
-    model: str | None = Field(default=None)
-    model_version: str | None = Field(default=None)
+### Identity Resolution Models
+
+```python
+class ResolutionSource(str, Enum):
+    """How the canonical name was determined."""
+    OVERRIDE = "override"  # Manual override in overrides.json
+    OFFICIAL = "official"  # Official Docker image or org-owned repo
+    VERIFIED = "verified"  # Verified publisher matching known canonical
+    FALLBACK = "fallback"  # Default: use artifact slug
+
+
+@dataclass
+class IdentityResolution:
+    """Result of resolving a tool's canonical identity."""
+    canonical_name: str
+    resolution_source: ResolutionSource
+    resolution_confidence: float
+    identity_version: str = IDENTITY_VERSION
+```
+
+**Confidence heuristics:**
+
+| Resolution Source | Typical Confidence |
+|------------------|-------------------|
+| OVERRIDE | 1.0 |
+| OFFICIAL | 0.95 |
+| VERIFIED | 0.85 |
+| FALLBACK | 0.6 |
+
+### Version Constants
+
+```python
+IDENTITY_VERSION: Final[str] = "1.0"
+TAXONOMY_VERSION: Final[str] = "1.0"
 ```
 
 ## Scoring Context Models

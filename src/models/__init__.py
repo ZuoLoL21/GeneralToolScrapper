@@ -1,9 +1,17 @@
 """Pydantic models for GeneralToolScraper."""
 
 from src.models.model_classification import (
+    IDENTITY_VERSION,
+    TAXONOMY_VERSION,
+    Category,
     Classification,
     ClassificationCacheEntry,
     ClassificationOverride,
+    ClassificationResult,
+    IdentityResolution,
+    ResolutionSource,
+    Subcategory,
+    TagMatch,
 )
 from src.models.model_eval import (
     FilterThresholds,
@@ -63,6 +71,17 @@ __all__ = [
     "Classification",
     "ClassificationCacheEntry",
     "ClassificationOverride",
+    "ClassificationResult",
+    "TagMatch",
+    # Identity models
+    "IdentityResolution",
+    "ResolutionSource",
+    # Taxonomy models
+    "Category",
+    "Subcategory",
+    # Version constants
+    "IDENTITY_VERSION",
+    "TAXONOMY_VERSION",
     # Evaluation models
     "FilterThresholds",
     "ScoreWeights",
