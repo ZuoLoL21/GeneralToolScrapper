@@ -47,10 +47,11 @@ DOCKER_HUB_TOKEN=your_token
 
 ```bash
 # Docker Hub namespaces
-DOCKER_HUB_NAMESPACES=library         # Comma-separated namespaces or "popular"
-                                      # Default: "library" (~177 official images)
-                                      # Popular: 9 curated namespaces (thousands of tools)
-                                      # Custom: "library,bitnami,ubuntu,nginx,postgres"
+DOCKER_HUB_NAMESPACES=default         # Presets: default, popular, all
+                                      # Default: Official images only (~177 tools)
+                                      # Popular: 9 curated verified namespaces
+                                      # All: 70+ well-known namespaces
+                                      # Or use custom comma-separated list
 
 # Rate limiting
 SCRAPE_DELAY_MS=1000                  # Delay between requests (ms)
@@ -64,9 +65,12 @@ RETRY_BACKOFF_MAX=60                  # Maximum backoff (seconds)
 
 **Docker Hub Namespace Options:**
 
-- **`library`** (default): Official Docker images only (~177 tools). Best for quick start and testing.
+- **`default`** (or `library`): Official Docker images only (~177 tools). Best for quick start and testing.
 - **`popular`**: Curated list of 9 verified namespaces (library, bitnami, ubuntu, alpine, mysql, postgres, nginx, redis, mongo). Recommended for production use.
+- **`all`**: Comprehensive list of 70+ well-known namespaces across all categories (official publishers, databases, web servers, programming languages, DevOps tools, monitoring, messaging, security, CMS, and more). Best for comprehensive scraping and research.
 - **Custom list**: Comma-separated namespaces like `library,bitnami,nginx`. Use for targeted scraping.
+
+For a complete list of all available namespaces in the `all` preset, see the main README.md or `src/consts.py`.
 
 ### Filtering Thresholds
 

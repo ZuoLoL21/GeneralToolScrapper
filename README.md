@@ -36,8 +36,14 @@ gts scrape --source docker_hub
 ### 2. Environment Variable
 Add to your `.env` file:
 ```bash
+# Use the default preset (official images only)
+DOCKER_HUB_NAMESPACES=default
+
 # Use the popular preset (9 curated namespaces: library, bitnami, ubuntu, etc.)
 DOCKER_HUB_NAMESPACES=popular
+
+# Use the all preset (70+ well-known namespaces across all categories)
+DOCKER_HUB_NAMESPACES=all
 
 # Or specify custom comma-separated namespaces
 DOCKER_HUB_NAMESPACES=library,bitnami,nginx,postgres
@@ -45,25 +51,117 @@ DOCKER_HUB_NAMESPACES=library,bitnami,nginx,postgres
 
 ### 3. CLI Option (Overrides Environment)
 ```bash
-# Specify namespaces directly via CLI
-gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
+# Use a preset (default, popular, or all)
+gts scrape --source docker_hub --namespaces default
+gts scrape --source docker_hub --namespaces popular
+gts scrape --source docker_hub --namespaces all
 
-# Scrape thousands of tools using popular preset
-gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu,alpine,mysql,postgres,nginx,redis,mongo"
+# Or specify custom comma-separated namespaces
+gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
 ```
 
 ### Available Presets
 
-- **`library`** (default): Official Docker images only (~177 tools)
+- **`default`** (or `library`): Official Docker images only (~177 tools)
 - **`popular`**: Curated list of 9 verified namespaces (library, bitnami, ubuntu, alpine, mysql, postgres, nginx, redis, mongo)
+- **`all`**: Comprehensive list of 70+ well-known Docker Hub namespaces across all categories
+
+### Available Namespaces by Category
+
+The scraper supports any Docker Hub namespace. Below are the well-known namespaces included in the `all` preset:
+
+#### Official and Verified Publishers
+- **library** - Official Docker images (~177 images)
+- **bitnami** - Bitnami verified publisher
+- **ubuntu** - Ubuntu official
+- **alpine** - Alpine Linux official
+- **amazonlinux** - Amazon Linux official
+- **fedora** - Fedora official
+- **centos** - CentOS official
+- **debian** - Debian official
+- **oraclelinux** - Oracle Linux official
+
+#### Databases
+- **mysql** - MySQL official
+- **postgres** - PostgreSQL official
+- **mongo** - MongoDB official
+- **redis** - Redis official
+- **mariadb** - MariaDB official
+- **elasticsearch** - Elasticsearch official
+- **cassandra** - Apache Cassandra official
+- **couchbase** - Couchbase official
+- **influxdb** - InfluxDB official
+- **neo4j** - Neo4j official
+
+#### Web Servers and Proxies
+- **nginx** - NGINX official
+- **httpd** - Apache HTTP Server official
+- **traefik** - Traefik official
+- **haproxy** - HAProxy official
+- **caddy** - Caddy official
+
+#### Programming Languages
+- **node** - Node.js official
+- **python** - Python official
+- **golang** - Go official
+- **openjdk** - OpenJDK official
+- **ruby** - Ruby official
+- **php** - PHP official
+- **rust** - Rust official
+- **dotnet** - .NET official
+
+#### DevOps and CI/CD
+- **jenkins** - Jenkins official
+- **gitlab** - GitLab official
+- **sonarqube** - SonarQube official
+- **nexus3** - Sonatype Nexus official
+
+#### Monitoring and Observability
+- **grafana** - Grafana official
+- **prometheus** - Prometheus official
+- **kibana** - Kibana official
+- **logstash** - Logstash official
+- **telegraf** - Telegraf official
+- **fluentd** - Fluentd official
+
+#### Message Queues and Streaming
+- **rabbitmq** - RabbitMQ official
+- **kafka** - Apache Kafka official
+- **nats** - NATS official
+- **memcached** - Memcached official
+
+#### Security and Secrets Management
+- **vault** - HashiCorp Vault official
+- **consul** - HashiCorp Consul official
+
+#### Content Management and Applications
+- **wordpress** - WordPress official
+- **ghost** - Ghost official
+- **drupal** - Drupal official
+- **joomla** - Joomla official
+- **nextcloud** - Nextcloud official
+
+#### Other Popular Namespaces
+- **portainer** - Portainer
+- **rancher** - Rancher
+- **docker** - Docker official tools
+- **circleci** - CircleCI
+
+See `src/consts.py` for the complete list.
 
 ### Examples
 
 ```bash
-# Quick test with official images
+# Quick test with official images only
 gts scrape --source docker_hub --limit 50
 
-# Production scrape with popular namespaces (thousands of tools)
+# Use popular preset (9 verified namespaces)
+gts scrape --source docker_hub --namespaces popular
+
+# Use all preset (70+ well-known namespaces) - comprehensive scrape
+gts scrape --source docker_hub --namespaces all
+
+# Production scrape with popular namespaces via environment variable
 export DOCKER_HUB_NAMESPACES=popular
 gts scrape --source docker_hub
 
@@ -72,6 +170,10 @@ gts scrape --source docker_hub --namespaces "library,bitnami" --limit 500
 
 # Override environment variable for a single run
 DOCKER_HUB_NAMESPACES=popular gts scrape --source docker_hub --namespaces "library"
+
+# Scrape specific categories
+gts scrape --source docker_hub --namespaces "mysql,postgres,mongo,redis"  # Databases only
+gts scrape --source docker_hub --namespaces "nginx,traefik,haproxy,caddy"  # Web servers only
 ```
 
 ### Data Persistence & Incremental Scraping

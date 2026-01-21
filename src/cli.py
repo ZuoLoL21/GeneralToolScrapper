@@ -46,7 +46,7 @@ def scrape(
     namespaces: str = typer.Option(
         None,
         "--namespaces",
-        help="Comma-separated Docker Hub namespaces (e.g., 'library,bitnami,ubuntu')",
+        help="Docker Hub namespaces: preset ('default', 'popular', 'all') or comma-separated list (e.g., 'library,bitnami,ubuntu')",
     ),
 ) -> None:
     """Scrape tools from sources and run full pipeline."""
@@ -75,8 +75,16 @@ def scrape(
     # Parse namespaces for Docker Hub
     namespace_list = None
     if namespaces:
-        namespace_list = [ns.strip() for ns in namespaces.split(",") if ns.strip()]
-        console.print(f"Using namespaces: {', '.join(namespace_list)}")
+        from src.consts import DOCKER_HUB_NAMESPACE_PRESETS
+
+        # Check if it's a preset (default, popular, all)
+        if namespaces.lower() in DOCKER_HUB_NAMESPACE_PRESETS:
+            namespace_list = DOCKER_HUB_NAMESPACE_PRESETS[namespaces.lower()]
+            console.print(f"Using '{namespaces}' preset with {len(namespace_list)} namespaces")
+        else:
+            # Parse as comma-separated list
+            namespace_list = [ns.strip() for ns in namespaces.split(",") if ns.strip()]
+            console.print(f"Using namespaces: {', '.join(namespace_list)}")
 
     # Run pipeline
     console.print(f"\n[bold]Scraping {source_type.value}...[/bold]\n")

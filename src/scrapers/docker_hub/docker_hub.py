@@ -80,7 +80,7 @@ class DockerHubScraper(BaseScraper):
         """
         import os
 
-        from src.consts import DOCKER_HUB_DEFAULT_NAMESPACES, DOCKER_HUB_POPULAR_NAMESPACES
+        from src.consts import DOCKER_HUB_NAMESPACE_PRESETS
 
         self.data_dir = data_dir or DEFAULT_DATA_DIR
         self.request_delay_ms = request_delay_ms
@@ -92,12 +92,15 @@ class DockerHubScraper(BaseScraper):
         else:
             env_namespaces = os.getenv("DOCKER_HUB_NAMESPACES", "").strip()
             if env_namespaces:
-                if env_namespaces.lower() == "popular":
-                    self.namespaces = DOCKER_HUB_POPULAR_NAMESPACES
+                # Check if it's a preset (default, popular, all)
+                if env_namespaces.lower() in DOCKER_HUB_NAMESPACE_PRESETS:
+                    self.namespaces = DOCKER_HUB_NAMESPACE_PRESETS[env_namespaces.lower()]
                 else:
+                    # Parse as comma-separated list
                     self.namespaces = [ns.strip() for ns in env_namespaces.split(",") if ns.strip()]
             else:
-                self.namespaces = DOCKER_HUB_DEFAULT_NAMESPACES
+                # Default to library namespace
+                self.namespaces = DOCKER_HUB_NAMESPACE_PRESETS["default"]
 
         logger.info(f"Docker Hub scraper: {len(self.namespaces)} namespaces: {self.namespaces}")
 

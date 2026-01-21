@@ -58,7 +58,7 @@ Options:
   --all                 Scrape all sources
   --force-refresh       Bypass cache, fetch fresh data
   --limit N             Maximum tools to scrape (for testing)
-  --namespaces NS       Comma-separated Docker Hub namespaces (overrides env)
+  --namespaces NS       Docker Hub namespaces: preset (default, popular, all) or custom list (overrides env)
 ```
 
 **Examples:**
@@ -67,7 +67,12 @@ Options:
 # Scrape Docker Hub (default: official images only)
 gts scrape --source docker_hub
 
-# Scrape specific namespaces
+# Use presets for different scopes
+gts scrape --source docker_hub --namespaces default      # Official images only (~177 tools)
+gts scrape --source docker_hub --namespaces popular      # 9 verified namespaces
+gts scrape --source docker_hub --namespaces all          # 70+ well-known namespaces
+
+# Scrape specific custom namespaces
 gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
 
 # Scrape all sources
@@ -89,19 +94,25 @@ By default, only official Docker images (`library` namespace, ~177 tools) are sc
 
 1. **Via environment variable** (set in `.env`):
    ```bash
-   DOCKER_HUB_NAMESPACES=popular  # Use popular preset (9 namespaces)
+   DOCKER_HUB_NAMESPACES=default  # Official images only (~177 tools)
+   DOCKER_HUB_NAMESPACES=popular  # 9 verified namespaces
+   DOCKER_HUB_NAMESPACES=all      # 70+ well-known namespaces
    # or
    DOCKER_HUB_NAMESPACES=library,bitnami,nginx,postgres  # Custom list
    ```
 
 2. **Via CLI option** (overrides environment):
    ```bash
+   gts scrape --source docker_hub --namespaces default
+   gts scrape --source docker_hub --namespaces popular
+   gts scrape --source docker_hub --namespaces all
    gts scrape --source docker_hub --namespaces "library,bitnami,ubuntu"
    ```
 
 **Available presets:**
-- `library` (default): Official Docker images only (~177 tools)
+- `default` (or `library`): Official Docker images only (~177 tools)
 - `popular`: Curated list of 9 verified namespaces (library, bitnami, ubuntu, alpine, mysql, postgres, nginx, redis, mongo)
+- `all`: Comprehensive list of 70+ well-known namespaces across all categories (see main README.md for complete list)
 
 **Output:**
 
