@@ -1,0 +1,73 @@
+Perfect! The evaluators module has been successfully implemented. Here's a
+  summary:
+
+  Implementation Complete ✓
+
+  I've successfully implemented the entire evaluators module for GeneralToolScraper
+   following the plan. Here's what was created:
+
+  Files Created:
+
+  Core Evaluators (src/evaluators/):
+  1. base.py - Protocol definition for evaluator contract
+  2. stats_generator.py - Compute global/category statistics for normalization
+  3. security.py - Security evaluator (vulnerability-based scoring)
+  4. trust.py - Trust evaluator (publisher reputation)
+  5. maintenance.py - Maintenance evaluator (update recency)
+  6. popularity.py - Popularity evaluator (log-transform + Z-score normalization)
+  7. composite.py - Composite scoring and dominance analysis
+  8. registry.py - Orchestration layer for all evaluators
+  9. __init__.py - Module exports (12 public APIs)
+
+  Tests:
+  10. tests/test_stats_generator.py - Statistics computation tests (10 test cases)
+  11. tests/test_evaluators.py - Evaluator tests (24 test cases)
+  12. tests/conftest.py - Updated with sample_stats and sample_context fixtures
+
+  Key Features:
+
+  ✓ Stateless Design - Pure functions (Tool + EvalContext → score)
+  ✓ Four Dimensions - Popularity, Security, Maintenance, Trust
+  ✓ Z-Score Normalization - Category-aware popularity scoring using scipy
+  ✓ Blocking Logic - Critical vulnerabilities auto-exclude tools
+  ✓ Score Analysis - Detects dominant dimensions (balanced vs. skewed)
+  ✓ Complete Test Coverage - All 197 tests passing
+  ✓ Demo Functions - Each module has a main() demonstrating usage
+
+  Scoring Algorithms:
+
+  - Security: 100 - (critical×60 + high×10 + medium×1 + low×0.5)
+  - Trust: Base scores by type (Official=100, Verified=90, Company=70, User=60) +
+  community bonus
+  - Maintenance: Staleness ratio relative to update frequency
+  - Popularity: Log-transform → Z-score → CDF (using scipy.stats.norm)
+
+  Test Results:
+
+  197 tests passed
+  - 10 stats generator tests
+  - 24 evaluator tests
+  - 163 existing tests (all still passing)
+
+  Example Usage:
+
+  from src.evaluators import EvaluatorRegistry, generate_all_stats
+  from src.models.model_stats import EvalContext
+
+  # Generate statistics
+  global_stats, category_stats = generate_all_stats(tools)
+
+  # Create context
+  context = EvalContext(
+      global_stats=global_stats,
+      category_stats=category_stats,
+      weights=ScoreWeights(),
+      score_version="1.0"
+  )
+
+  # Evaluate tools
+  registry = EvaluatorRegistry()
+  scored_tools = registry.evaluate_batch(tools, context)
+
+  All evaluators follow the SCORING.md specification exactly and are ready for
+  integration with the rest of the GeneralToolScraper pipeline!

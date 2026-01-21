@@ -87,8 +87,8 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 - [x] Docker Hub scraper with resilience
 - [x] Categorization
 - [x] File-based storage layer
-- [ ] Centralized caching
-- [ ] Popularity and maintenance evaluators
+- [x] Centralized caching
+- [x] Popularity and maintenance evaluators
 - [ ] Basic CLI (scrape, search, top, export)
 - [ ] Pre/post filtering logic
 
