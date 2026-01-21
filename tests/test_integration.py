@@ -3,6 +3,7 @@
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import AsyncIterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +20,12 @@ from src.models.model_tool import (
 )
 from src.pipeline import load_processed_tools, run_scrape_pipeline
 from src.storage.permanent_storage.file_manager import FileManager
+
+
+async def async_generator_from_list(items: list) -> AsyncIterator:
+    """Helper to create async generator from list for mocking."""
+    for item in items:
+        yield item
 
 
 @pytest.fixture
@@ -119,7 +126,7 @@ class TestPipelineIntegration:
         """Test complete pipeline from scraping to storage."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools)
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline
@@ -163,7 +170,7 @@ class TestPipelineIntegration:
         """Test that pipeline correctly filters tools."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools)
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline
@@ -202,7 +209,7 @@ class TestPipelineIntegration:
         """Test that pipeline categorizes tools."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools)
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline
@@ -231,7 +238,7 @@ class TestPipelineIntegration:
         """Test that pipeline assigns keywords."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools)
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline
@@ -260,7 +267,7 @@ class TestPipelineIntegration:
         """Test that pipeline scores tools."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools)
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline
@@ -293,7 +300,7 @@ class TestPipelineIntegration:
         """Test pipeline with scrape limit."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools[:2]  # Return only 2 tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools[:2])  # Return only 2 tools
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline with limit
@@ -304,8 +311,8 @@ class TestPipelineIntegration:
             data_dir=temp_dir,
         )
 
-        # Verify scraper was called with limit
-        mock_scraper.scrape.assert_called_once_with(limit=2)
+        # Verify scraper was called (limit is handled by pipeline, not scraper)
+        mock_scraper.scrape.assert_called_once()
 
     @patch("src.pipeline.DockerHubScraper")
     def test_pipeline_force_refresh(
@@ -317,7 +324,7 @@ class TestPipelineIntegration:
         """Test pipeline with force refresh."""
         # Setup mock scraper
         mock_scraper = MagicMock()
-        mock_scraper.scrape.return_value = mock_scraper_tools
+        mock_scraper.scrape.return_value = async_generator_from_list(mock_scraper_tools)
         mock_scraper_class.return_value = mock_scraper
 
         # Run pipeline with force refresh
