@@ -1,26 +1,26 @@
 """Pydantic models for GeneralToolScraper."""
 
-from src.Models.model_classification import (
+from src.models.model_classification import (
     Classification,
     ClassificationCacheEntry,
     ClassificationOverride,
 )
-from src.Models.model_eval import (
+from src.models.model_eval import (
     FilterThresholds,
     ScoreWeights,
 )
-from src.Models.model_stats import (
+from src.models.model_stats import (
     CategoryStats,
     DistributionStats,
     EvalContext,
     GlobalStats,
 )
-from src.Models.model_storage import (
+from src.models.model_storage import (
     RawScrapeFile,
     ScoresFile,
     ToolScore,
 )
-from src.Models.model_tool import (
+from src.models.model_tool import (
     DominantDimension,
     FilterReasons,
     FilterState,

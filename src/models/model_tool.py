@@ -3,7 +3,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, computed_field
 
-from src.Models.common import _utc_now
+from src.models.common import _utc_now
 
 
 class SourceType(str, Enum):

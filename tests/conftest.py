@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.Models.model_tool import (
+from src.models.model_tool import (
     Identity,
     Maintainer,
     MaintainerType,

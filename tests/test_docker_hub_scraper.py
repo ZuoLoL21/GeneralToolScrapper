@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from src.Models.model_tool import Lifecycle, MaintainerType, SourceType
-from src.Scrapers.docker_hub import (
+from src.models.model_tool import Lifecycle, MaintainerType, SourceType
+from src.scrapers.docker_hub import (
     DockerHubScraper,
     RateLimiter,
     ResponseCache,

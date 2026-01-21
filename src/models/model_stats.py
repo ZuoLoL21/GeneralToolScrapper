@@ -4,8 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from src.Models.common import _utc_now
-from src.Models.model_eval import FilterThresholds, ScoreWeights
+from src.models.common import _utc_now
+from src.models.model_eval import FilterThresholds, ScoreWeights
 
 
 class DistributionStats(BaseModel):

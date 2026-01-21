@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 
-from src.Models.model_tool import Tool
+from src.models.model_tool import Tool
 
 
 class BaseScraper(ABC):
@@ -18,7 +18,7 @@ class BaseScraper(ABC):
         """Return the source identifier (e.g., 'docker_hub', 'github')."""
         ...
 
-    def scrape(self) -> AsyncGenerator[Tool, None]:
+    def scrape(self) -> AsyncGenerator[Tool, None]:  # noqa: UP043
         """Scrape tools from the source.
 
         Yields:

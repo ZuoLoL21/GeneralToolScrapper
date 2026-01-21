@@ -31,7 +31,7 @@ GeneralToolScraper is a pipeline-based system that:
 
 ```
 GeneralToolScraper/
-├── gts/
+├── src/
 │   ├── __init__.py
 │   ├── cli.py                    # Typer-based CLI orchestration
 │   ├── config.py                 # Configuration loading and validation

@@ -4,9 +4,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from src.Models.common import _utc_now
-from src.Models.model_eval import ScoreWeights
-from src.Models.model_tool import (
+from src.models.common import _utc_now
+from src.models.model_eval import ScoreWeights
+from src.models.model_tool import (
     ScoreAnalysis,
     ScoreBreakdown,
     SourceType,
@@ -44,6 +44,4 @@ class ScoresFile(BaseModel):
     computed_at: datetime = Field(default_factory=_utc_now)
     score_version: str = Field(description="Hash of algorithm + weights")
     weights: ScoreWeights
-    scores: dict[str, ToolScore] = Field(
-        default_factory=dict, description="Key: tool ID"
-    )
+    scores: dict[str, ToolScore] = Field(default_factory=dict, description="Key: tool ID")

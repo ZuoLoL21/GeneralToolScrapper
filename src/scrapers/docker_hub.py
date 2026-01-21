@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from src.Models.model_tool import (
+from src.models.model_tool import (
     Identity,
     Lifecycle,
     Maintainer,
@@ -29,7 +29,7 @@ from src.Models.model_tool import (
     SourceType,
     Tool,
 )
-from src.Scrapers.base_scraper import BaseScraper
+from src.scrapers.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -562,14 +562,7 @@ class DockerHubScraper(BaseScraper):
         logger.info("Cleared Docker Hub scrape queue")
 
 
-async def main() -> None:
-    """Example usage of the Docker Hub scraper."""
-    # Configure logging to see what's happening
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
+async def main1() -> None:
     # Create scraper for official Docker images
     scraper = DockerHubScraper(
         data_dir=Path("data"),
@@ -584,16 +577,13 @@ async def main() -> None:
     print("1. Fetching details for 'postgres'...")
     tool = await scraper.get_tool_details("docker_hub:library/postgres")
     if tool:
-        print(f"   Name: {tool.name}")
-        print(f"   Description: {tool.description[:80]}...")
-        print(f"   Downloads: {tool.metrics.downloads:,}")
-        print(f"   Stars: {tool.metrics.stars:,}")
-        print(f"   Maintainer: {tool.maintainer.name} ({tool.maintainer.type.value})")
-        print(f"   Lifecycle: {tool.lifecycle.value}")
+        print(tool.model_dump_json(indent=4))
     print()
 
+
+async def main2() -> None:
     # Example 2: Scrape first 5 tools from a namespace
-    print("2. Scraping first 5 official images...")
+    print("2. Scraping first 100 official images...")
     scraper2 = DockerHubScraper(
         data_dir=Path("data"),
         namespaces=["library"],
@@ -603,7 +593,7 @@ async def main() -> None:
     async for tool in scraper2.scrape_with_resume(resume=False):
         count += 1
         print(f"   [{count}] {tool.name}: {tool.metrics.downloads:,} downloads")
-        if count >= 5:
+        if count >= 100:
             break
 
     # Clean up the client
@@ -614,4 +604,10 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Configure logging to see what's happening
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    asyncio.run(main2())
