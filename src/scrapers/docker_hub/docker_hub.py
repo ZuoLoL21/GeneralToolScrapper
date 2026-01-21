@@ -8,10 +8,8 @@ Implements scraping from Docker Hub API with:
 """
 
 import asyncio
-import hashlib
-import json
+import contextlib
 import logging
-import random
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +28,9 @@ from src.models.model_tool import (
     Tool,
 )
 from src.scrapers.base_scraper import BaseScraper
+from src.scrapers.docker_hub.rate_limiter import RateLimiter
+from src.scrapers.docker_hub.response_cache import ResponseCache
+from src.scrapers.docker_hub.scrape_queue import ScrapeQueue
 
 logger = logging.getLogger(__name__)
 
@@ -44,164 +45,6 @@ def _extract_tags(repo: dict[str, Any]) -> list[str]:
         elif isinstance(cat, dict) and "name" in cat:
             tags.append(cat["name"])
     return tags
-
-
-class RateLimiter:
-    """Rate limiter with exponential backoff and jitter."""
-
-    def __init__(
-        self,
-        initial_delay: float = 1.0,
-        max_delay: float = 60.0,
-        backoff_factor: float = 2.0,
-        jitter_factor: float = 0.1,
-    ):
-        self.initial_delay = initial_delay
-        self.max_delay = max_delay
-        self.backoff_factor = backoff_factor
-        self.jitter_factor = jitter_factor
-        self._current_delay = initial_delay
-        self._consecutive_errors = 0
-
-    def reset(self) -> None:
-        """Reset delay after successful request."""
-        self._current_delay = self.initial_delay
-        self._consecutive_errors = 0
-
-    def backoff(self) -> float:
-        """Calculate next delay with exponential backoff and jitter."""
-        self._consecutive_errors += 1
-        self._current_delay = min(
-            self._current_delay * self.backoff_factor,
-            self.max_delay,
-        )
-        # Add jitter: +/- jitter_factor of the delay
-        jitter = self._current_delay * self.jitter_factor * (2 * random.random() - 1)
-        return self._current_delay + jitter
-
-    @property
-    def current_delay(self) -> float:
-        """Get current delay with jitter applied."""
-        jitter = self._current_delay * self.jitter_factor * (2 * random.random() - 1)
-        return self._current_delay + jitter
-
-
-class ScrapeQueue:
-    """Persistent queue for tracking scrape progress."""
-
-    def __init__(self, queue_path: Path):
-        self.queue_path = queue_path
-        self._pending: list[str] = []
-        self._completed: set[str] = set()
-        self._failed: dict[str, str] = {}  # namespace -> error message
-
-    def load(self) -> None:
-        """Load queue state from disk."""
-        if self.queue_path.exists():
-            data = json.loads(self.queue_path.read_text())
-            self._pending = data.get("pending", [])
-            self._completed = set(data.get("completed", []))
-            self._failed = data.get("failed", {})
-            logger.info(
-                f"Resumed queue: {len(self._pending)} pending, "
-                f"{len(self._completed)} completed, {len(self._failed)} failed"
-            )
-
-    def save(self) -> None:
-        """Persist queue state to disk."""
-        self.queue_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "pending": self._pending,
-            "completed": list(self._completed),
-            "failed": self._failed,
-        }
-        self.queue_path.write_text(json.dumps(data, indent=2))
-
-    def add_pending(self, items: list[str]) -> None:
-        """Add items to pending queue (skipping already completed)."""
-        for item in items:
-            if item not in self._completed and item not in self._pending:
-                self._pending.append(item)
-
-    def get_next(self) -> str | None:
-        """Get next pending item."""
-        return self._pending[0] if self._pending else None
-
-    def mark_completed(self, item: str) -> None:
-        """Mark item as completed."""
-        if item in self._pending:
-            self._pending.remove(item)
-        self._completed.add(item)
-        self.save()
-
-    def mark_failed(self, item: str, error: str) -> None:
-        """Mark item as failed with error message."""
-        if item in self._pending:
-            self._pending.remove(item)
-        self._failed[item] = error
-        self.save()
-
-    def clear(self) -> None:
-        """Clear all queue state."""
-        self._pending = []
-        self._completed = set()
-        self._failed = {}
-        if self.queue_path.exists():
-            self.queue_path.unlink()
-
-    @property
-    def is_empty(self) -> bool:
-        """Check if queue has no pending items."""
-        return len(self._pending) == 0
-
-
-class ResponseCache:
-    """Simple file-based response cache with TTL."""
-
-    def __init__(self, cache_dir: Path, ttl_seconds: int = 86400):
-        self.cache_dir = cache_dir
-        self.ttl_seconds = ttl_seconds
-
-    def _cache_key(self, endpoint: str, params: dict[str, Any]) -> str:
-        """Generate cache key from endpoint and params."""
-        key_data = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
-        return hashlib.sha256(key_data.encode()).hexdigest()[:16]
-
-    def _cache_path(self, key: str) -> Path:
-        """Get file path for cache key."""
-        return self.cache_dir / f"{key}.json"
-
-    def get(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any] | None:
-        """Get cached response if valid."""
-        key = self._cache_key(endpoint, params)
-        path = self._cache_path(key)
-
-        if not path.exists():
-            return None
-
-        data = json.loads(path.read_text())
-        cached_at = datetime.fromisoformat(data["cached_at"])
-        age = (datetime.now(UTC) - cached_at).total_seconds()
-
-        if age > self.ttl_seconds:
-            path.unlink()
-            return None
-
-        return data["response"]
-
-    def set(self, endpoint: str, params: dict[str, Any], response: dict[str, Any]) -> None:
-        """Cache response."""
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        key = self._cache_key(endpoint, params)
-        path = self._cache_path(key)
-
-        data = {
-            "cached_at": datetime.now(UTC).isoformat(),
-            "endpoint": endpoint,
-            "params": params,
-            "response": response,
-        }
-        path.write_text(json.dumps(data))
 
 
 class DockerHubScraper(BaseScraper):
@@ -233,7 +76,7 @@ class DockerHubScraper(BaseScraper):
             cache_ttl_seconds: Cache TTL in seconds (default 24h).
             namespaces: List of namespaces to scrape. None = discover popular.
         """
-        self.data_dir = data_dir or Path("data")
+        self.data_dir = data_dir or Path("../data")
         self.request_delay_ms = request_delay_ms
         self.use_cache = use_cache
         self.namespaces = namespaces or ["library"]  # Official images by default
@@ -266,7 +109,7 @@ class DockerHubScraper(BaseScraper):
         endpoint: str,
         params: dict[str, Any] | None = None,
         use_cache: bool = True,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """Make API request with rate limiting and caching.
 
         Args:
@@ -405,15 +248,11 @@ class DockerHubScraper(BaseScraper):
         created_at = None
         last_updated = None
         if repo.get("date_registered"):
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 created_at = datetime.fromisoformat(repo["date_registered"].replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                pass
         if repo.get("last_updated"):
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 last_updated = datetime.fromisoformat(repo["last_updated"].replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                pass
 
         # Determine lifecycle based on age and activity
         lifecycle = Lifecycle.ACTIVE
@@ -565,7 +404,7 @@ class DockerHubScraper(BaseScraper):
 async def main1() -> None:
     # Create scraper for official Docker images
     scraper = DockerHubScraper(
-        data_dir=Path("data"),
+        data_dir=Path("../data"),
         request_delay_ms=100,
         use_cache=True,
         namespaces=["library"],  # Official images only
@@ -585,7 +424,7 @@ async def main2() -> None:
     # Example 2: Scrape first 5 tools from a namespace
     print("2. Scraping first 100 official images...")
     scraper2 = DockerHubScraper(
-        data_dir=Path("data"),
+        data_dir=Path("../data"),
         namespaces=["library"],
     )
 

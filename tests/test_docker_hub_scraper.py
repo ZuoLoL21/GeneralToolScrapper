@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from src.models.model_tool import Lifecycle, MaintainerType, SourceType
-from src.scrapers.docker_hub import (
+from src.scrapers.docker_hub.docker_hub import (
     DockerHubScraper,
     RateLimiter,
     ResponseCache,

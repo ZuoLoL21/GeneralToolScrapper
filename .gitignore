@@ -55,5 +55,5 @@ cache/
 .DS_Store
 Thumbs.db
 
-tests/.claude
-tests/CLAUDE.md
+.claude
+CLAUDE.md
