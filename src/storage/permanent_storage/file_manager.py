@@ -5,6 +5,7 @@ Provides operations for:
 - Processed tool catalog (unified, regenerable)
 - Computed scores (versioned)
 - Statistics (global and per-category)
+- Generic key-value storage by category
 """
 
 import json
@@ -17,11 +18,12 @@ from src.consts import DEFAULT_DATA_DIR
 from src.models.model_stats import CategoryStats, GlobalStats
 from src.models.model_storage import RawScrapeFile, ScoresFile
 from src.models.model_tool import SourceType, Tool
+from src.storage.permanent_storage.base import PermanentStorage
 
 logger = logging.getLogger(__name__)
 
 
-class FileManager:
+class FileManager(PermanentStorage):
     """File-based storage manager for tool data.
 
     Directory structure:
@@ -395,65 +397,180 @@ class FileManager:
 
         return summary
 
+    # === GENERIC PERMANENT STORAGE OPERATIONS ===
+    # These implement the PermanentStorage abstract base class interface
 
-#
-# def main() -> None:
-#     """Example usage of FileManager."""
-#     logging.basicConfig(level=logging.INFO)
-#
-#     # Use temporary directory for example
-#     storage = FileManager()
-#
-#     # Create sample tools
-#     sample_tools = [
-#         Tool(
-#             id="docker_hub:library/postgres",
-#             name="postgres",
-#             source=SourceType.DOCKER_HUB,
-#             source_url="https://hub.docker.com/_/postgres",
-#             description="PostgreSQL database",
-#         ),
-#         Tool(
-#             id="docker_hub:library/redis",
-#             name="redis",
-#             source=SourceType.DOCKER_HUB,
-#             source_url="https://hub.docker.com/_/redis",
-#             description="Redis key-value store",
-#         ),
-#     ]
-#
-#     # Save raw scrape
-#     print("\n=== Saving raw scrape ===")
-#     raw_path = storage.save_raw(SourceType.DOCKER_HUB, sample_tools)
-#     print(f"Saved to: {raw_path}")
-#
-#     # List available scrapes
-#     print("\n=== Listing raw scrapes ===")
-#     scrapes = storage.list_raw_scrapes(SourceType.DOCKER_HUB)
-#     print(f"Available scrapes: {scrapes}")
-#
-#     # Load raw scrape
-#     print("\n=== Loading raw scrape ===")
-#     loaded_raw = storage.load_raw(SourceType.DOCKER_HUB)
-#     if loaded_raw:
-#         print(f"Loaded {len(loaded_raw.tools)} tools from {loaded_raw.source}")
-#
-#     # Save processed data
-#     print("\n=== Saving processed data ===")
-#     processed_path = storage.save_processed(sample_tools)
-#     print(f"Saved to: {processed_path}")
-#
-#     # Load processed data
-#     print("\n=== Loading processed data ===")
-#     loaded_processed = storage.load_processed()
-#     if loaded_processed:
-#         print(f"Loaded {len(loaded_processed)} processed tools")
-#
-#     # Get data summary
-#     print("\n=== Data summary ===")
-#     summary = storage.get_data_summary()
-#     print(json.dumps(summary, indent=2, default=str))
-#
-#
-# if __name__ == "__main__":
-#     main()
+    def save(self, key: str, data: Any, category: str) -> Path:
+        """Save data to permanent storage.
+
+        Args:
+            key: Unique identifier for the data within the category.
+            data: Data to store (must be JSON-serializable).
+            category: Category/namespace for organizing data.
+
+        Returns:
+            Path where data was stored.
+        """
+        category_dir = self.data_dir / category
+        self._ensure_dirs(category_dir)
+
+        path = category_dir / f"{key}.json"
+        content = {
+            "key": key,
+            "category": category,
+            "saved_at": datetime.now(UTC).isoformat(),
+            "data": data,
+        }
+        path.write_text(json.dumps(content, indent=2, default=str), encoding="utf-8")
+        logger.debug(f"Saved {key} in category={category}")
+        return path
+
+    def load(self, key: str, category: str) -> Any | None:
+        """Load data from permanent storage.
+
+        Args:
+            key: Unique identifier for the data.
+            category: Category/namespace to look in.
+
+        Returns:
+            Stored data if found, None otherwise.
+        """
+        path = self.data_dir / category / f"{key}.json"
+        if not path.exists():
+            return None
+
+        try:
+            content = json.loads(path.read_text(encoding="utf-8"))
+            return content.get("data")
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to load {key} from {category}: {e}")
+            return None
+
+    def delete(self, key: str, category: str) -> bool:
+        """Delete data from permanent storage.
+
+        Args:
+            key: Unique identifier for the data.
+            category: Category/namespace to look in.
+
+        Returns:
+            True if data was deleted, False if not found.
+        """
+        path = self.data_dir / category / f"{key}.json"
+        if path.exists():
+            path.unlink()
+            logger.debug(f"Deleted {key} from category={category}")
+            return True
+        return False
+
+    def exists(self, key: str, category: str) -> bool:
+        """Check if data exists in permanent storage.
+
+        Args:
+            key: Unique identifier for the data.
+            category: Category/namespace to look in.
+
+        Returns:
+            True if data exists, False otherwise.
+        """
+        path = self.data_dir / category / f"{key}.json"
+        return path.exists()
+
+    def list_keys(self, category: str) -> list[str]:
+        """List all keys in a category.
+
+        Args:
+            category: Category/namespace to list keys from.
+
+        Returns:
+            List of keys in the category.
+        """
+        category_dir = self.data_dir / category
+        if not category_dir.exists():
+            return []
+
+        keys = []
+        for path in category_dir.glob("*.json"):
+            keys.append(path.stem)
+        return sorted(keys)
+
+
+def main() -> None:
+    """Example usage of FileManager."""
+    import tempfile
+
+    logging.basicConfig(level=logging.INFO)
+
+    # Use temporary directory for example
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = FileManager(data_dir=tmpdir)
+
+        print("=== FileManager Example ===\n")
+
+        # Create sample tools
+        sample_tools = [
+            Tool(
+                id="docker_hub:library/postgres",
+                name="postgres",
+                source=SourceType.DOCKER_HUB,
+                source_url="https://hub.docker.com/_/postgres",
+                description="PostgreSQL database",
+            ),
+            Tool(
+                id="docker_hub:library/redis",
+                name="redis",
+                source=SourceType.DOCKER_HUB,
+                source_url="https://hub.docker.com/_/redis",
+                description="Redis key-value store",
+            ),
+        ]
+
+        # Save raw scrape
+        print("1. Saving raw scrape...")
+        raw_path = storage.save_raw(SourceType.DOCKER_HUB, sample_tools)
+        print(f"   Saved to: {raw_path}")
+
+        # List available scrapes
+        print("\n2. Listing raw scrapes...")
+        scrapes = storage.list_raw_scrapes(SourceType.DOCKER_HUB)
+        print(f"   Available scrapes: {scrapes}")
+
+        # Load raw scrape
+        print("\n3. Loading raw scrape...")
+        loaded_raw = storage.load_raw(SourceType.DOCKER_HUB)
+        if loaded_raw:
+            print(f"   Loaded {len(loaded_raw.tools)} tools from {loaded_raw.source}")
+
+        # Save processed data
+        print("\n4. Saving processed data...")
+        processed_path = storage.save_processed(sample_tools)
+        print(f"   Saved to: {processed_path}")
+
+        # Load processed data
+        print("\n5. Loading processed data...")
+        loaded_processed = storage.load_processed()
+        if loaded_processed:
+            print(f"   Loaded {len(loaded_processed)} processed tools")
+
+        # Test generic save/load (PermanentStorage interface)
+        print("\n6. Testing generic PermanentStorage interface...")
+        storage.save("config_v1", {"setting": "value", "enabled": True}, "configs")
+        print("   Saved config_v1 to 'configs' category")
+
+        loaded_config = storage.load("config_v1", "configs")
+        print(f"   Loaded config: {loaded_config}")
+
+        print(f"   config_v1 exists: {storage.exists('config_v1', 'configs')}")
+        print(f"   Keys in 'configs': {storage.list_keys('configs')}")
+
+        storage.delete("config_v1", "configs")
+        print(f"   config_v1 exists after delete: {storage.exists('config_v1', 'configs')}")
+
+        # Get data summary
+        print("\n7. Data summary...")
+        summary = storage.get_data_summary()
+        print(f"   {json.dumps(summary, indent=2, default=str)}")
+
+
+if __name__ == "__main__":
+    main()

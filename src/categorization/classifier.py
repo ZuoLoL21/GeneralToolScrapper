@@ -20,6 +20,7 @@ from src.categorization.classifier_cache import ClassificationCache
 from src.categorization.human_maintained import TAXONOMY
 from src.categorization.identity import IdentityResolver
 from src.categorization.taxonomy import validate_classification
+from src.consts import DEFAULT_DATA_DIR
 from src.models.model_classification import (
     TAXONOMY_VERSION,
     Classification,
@@ -55,20 +56,34 @@ class Classifier:
         """Initialize classifier.
 
         Args:
-            data_dir: Directory for cache and overrides. Defaults to ./data.
+            data_dir: Directory for cache and overrides.
+                     If None, uses FileCache's default location.
             identity_resolver: Identity resolver instance. Created if not provided.
         """
-        self.data_dir = data_dir or Path("data")
-        self.identity_resolver = identity_resolver or IdentityResolver(
-            overrides_path=self.data_dir / "overrides.json"
-        )
-        self._cache = ClassificationCache(self.data_dir / "cache" / "classifications.json")
+        self.data_dir = data_dir
+
+        # Create identity resolver
+        if identity_resolver is not None:
+            self.identity_resolver = identity_resolver
+        elif data_dir is not None:
+            self.identity_resolver = IdentityResolver(overrides_path=data_dir / "overrides.json")
+        else:
+            self.identity_resolver = IdentityResolver()
+
+        # Create classification cache
+        if data_dir is not None:
+            self._cache = ClassificationCache(cache_path=data_dir / "cache")
+        else:
+            # Use FileCache defaults
+            self._cache = ClassificationCache()
+
         self._overrides: dict[str, ClassificationOverride] = {}
         self._load_overrides()
 
     def _load_overrides(self) -> None:
         """Load classification overrides from file."""
-        overrides_path = self.data_dir / "overrides.json"
+        data_dir = self.data_dir if self.data_dir is not None else DEFAULT_DATA_DIR
+        overrides_path = data_dir / "overrides.json"
         if overrides_path.exists():
             try:
                 data = json.loads(overrides_path.read_text())
@@ -420,7 +435,8 @@ class Classifier:
 
     def _save_overrides(self) -> None:
         """Save overrides to file."""
-        overrides_path = self.data_dir / "overrides.json"
+        data_dir = self.data_dir if self.data_dir is not None else DEFAULT_DATA_DIR
+        overrides_path = data_dir / "overrides.json"
         overrides_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Load existing to preserve other override types
@@ -441,11 +457,8 @@ class Classifier:
 
     def get_needs_review(self) -> list[str]:
         """Get list of canonical names that need review."""
-        needs_review = []
-        for canonical, entry in self._cache._cache.items():
-            if entry.source == "fallback":
-                needs_review.append(canonical)
-        return needs_review
+        entries = self._cache.get_entries_by_source("fallback")
+        return [canonical for canonical, _ in entries]
 
 
 def main() -> None:
@@ -461,7 +474,7 @@ def main() -> None:
 
     print("=== Classifier Example ===\n")
 
-    classifier = Classifier(data_dir=Path("data"))
+    classifier = Classifier()
 
     # Example 1: Classify by tags
     print("1. Classify 'postgres' by tags:")

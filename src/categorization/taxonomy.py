@@ -6,7 +6,7 @@ select from this predefined list.
 """
 
 from src.categorization.human_maintained import TAXONOMY
-from src.models.model_classification import TAXONOMY_VERSION, Category
+from src.models.model_classification import Category
 
 
 def get_category(name: str) -> Category | None:

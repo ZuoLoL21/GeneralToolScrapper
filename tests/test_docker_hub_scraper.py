@@ -142,7 +142,8 @@ class TestResponseCache:
         cache.set("/endpoint", {}, data)
 
         # Manually expire the cache by modifying the cached_at
-        cache_files = list((tmp_path / "cache").glob("*.json"))
+        # Note: Files are now stored in {cache_dir}/responses/{hash}.json
+        cache_files = list((tmp_path / "cache" / "responses").glob("*.json"))
         assert len(cache_files) == 1
 
         cached_data = json.loads(cache_files[0].read_text())

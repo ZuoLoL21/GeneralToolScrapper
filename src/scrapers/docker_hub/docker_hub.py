@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from src.consts import DEFAULT_DATA_DIR
 from src.models.model_tool import (
     Identity,
     Lifecycle,
@@ -73,10 +74,10 @@ class DockerHubScraper(BaseScraper):
             data_dir: Directory for cache and queue files. Defaults to ./data.
             request_delay_ms: Delay between requests in milliseconds.
             use_cache: Whether to cache API responses.
-            cache_ttl_seconds: Cache TTL in seconds (default 24h).
+            cache_ttl_seconds:Cache TTL in seconds (default 24h).
             namespaces: List of namespaces to scrape. None = discover popular.
         """
-        self.data_dir = data_dir or Path("../data")
+        self.data_dir = data_dir or DEFAULT_DATA_DIR
         self.request_delay_ms = request_delay_ms
         self.use_cache = use_cache
         self.namespaces = namespaces or ["library"]  # Official images by default
@@ -404,7 +405,6 @@ class DockerHubScraper(BaseScraper):
 async def main1() -> None:
     # Create scraper for official Docker images
     scraper = DockerHubScraper(
-        data_dir=Path("../data"),
         request_delay_ms=100,
         use_cache=True,
         namespaces=["library"],  # Official images only
@@ -424,7 +424,6 @@ async def main2() -> None:
     # Example 2: Scrape first 5 tools from a namespace
     print("2. Scraping first 100 official images...")
     scraper2 = DockerHubScraper(
-        data_dir=Path("../data"),
         namespaces=["library"],
     )
 
@@ -448,5 +447,5 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-
+    asyncio.run(main1())
     asyncio.run(main2())

@@ -1,0 +1,7 @@
+Add property/keywords to tools
+- set list of keywords
+    - desktop/ mobile
+    - high latency/ high throughput
+    - optimized/ highly optimized
+
+Add Data layers : (rest, graphql, protobuf)
