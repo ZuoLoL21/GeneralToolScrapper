@@ -84,7 +84,7 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 ### Phase 1: Docker Hub MVP (Current)
 
 - [x] Project scaffolding and data models
-- [ ] Docker Hub scraper with resilience
+- [x] Docker Hub scraper with resilience
 - [ ] File-based storage layer
 - [ ] Popularity and maintenance evaluators
 - [ ] Basic CLI (scrape, search, top, export)
