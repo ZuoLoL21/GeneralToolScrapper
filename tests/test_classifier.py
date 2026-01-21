@@ -170,10 +170,10 @@ class TestClassifier:
     def test_classify_fallback_to_uncategorized(self, tmp_path: Path) -> None:
         classifier = Classifier(data_dir=tmp_path)
         result = classifier.classify(
-            artifact_id="docker_hub:user/myapp",
-            name="myapp",
-            tags=["custom", "app"],
-            description="My custom application",
+            artifact_id="docker_hub:user/zqxwv",
+            name="zqxwv",
+            tags=["zqxwv"],
+            description="zqxwv",
         )
         assert result.classification.primary_category == UNCATEGORIZED
         assert result.classification.primary_subcategory == UNCATEGORIZED
@@ -300,12 +300,12 @@ class TestClassifier:
     def test_apply_classification_marks_needs_review(self, tmp_path: Path) -> None:
         classifier = Classifier(data_dir=tmp_path)
         tool = Tool(
-            id="docker_hub:user/unknownapp",
-            name="unknownapp",
+            id="docker_hub:user/qwzxv",
+            name="qwzxv",
             source=SourceType.DOCKER_HUB,
-            source_url="https://hub.docker.com/r/user/unknownapp",
-            description="Some unknown application",
-            tags=["app"],
+            source_url="https://hub.docker.com/r/user/qwzxv",
+            description="qwzxv tool",
+            tags=["qwzxv"],
             identity=Identity(canonical_name=""),
             maintainer=Maintainer(
                 name="user",
@@ -372,21 +372,21 @@ class TestClassifier:
             description="",
         )
         classifier.classify(
-            artifact_id="docker_hub:user/unknown1",
-            name="unknown1",
+            artifact_id="docker_hub:user/zqxwv1",
+            name="zqxwv1",
             tags=[],
             description="",
         )
         classifier.classify(
-            artifact_id="docker_hub:user/unknown2",
-            name="unknown2",
+            artifact_id="docker_hub:user/zqxwv2",
+            name="zqxwv2",
             tags=[],
             description="",
         )
 
         needs_review = classifier.get_needs_review()
-        assert "unknown1" in needs_review
-        assert "unknown2" in needs_review
+        assert "zqxwv1" in needs_review
+        assert "zqxwv2" in needs_review
         assert "postgres" not in needs_review
 
     def test_clear_cache(self, tmp_path: Path) -> None:
