@@ -13,22 +13,14 @@ While the data can serve research, compliance, or productivity use cases, the pr
 ```bash
 # Clone and setup
 cd GeneralToolScraper
-python -m venv .venv
-.venv\Scripts\activate     # Windows
-source .venv/bin/activate  # Linux/Mac
-
-# Install dependencies
-pip install -e ".[dev]"
+uv sync
 
 # Configure API keys
 cp .env.example .env
 # Edit .env with your API keys
 
 # Run (MVP mode - no LLM/Trivy required)
-gts scrape --source docker_hub
-gts search "postgres" --category databases
-gts top --category monitoring --limit 10
-gts export --format json --output tools.json
+gts --help
 ```
 
 ## Operating Modes
