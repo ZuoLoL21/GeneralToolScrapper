@@ -137,6 +137,11 @@ class ScanOrchestrator:
                 logger.debug(f"Skipping {tool.id} (unscannable image)")
                 continue
 
+            # Skip deprecated image formats (manifest schema v1)
+            if tool.is_deprecated_image_format:
+                logger.debug(f"Skipping {tool.id} (deprecated manifest schema v1)")
+                continue
+
             # Skip if in failure cache
             if self.scan_cache.is_failed(tool.id):
                 logger.debug(f"Skipping {tool.id} (cached failure)")

@@ -393,8 +393,8 @@ class DockerHubScraper(BaseScraper):
 
     async def _fetch_tag_digest(
         self, namespace: str, name: str, tag: str, max_retries: int = 3
-    ) -> str | None:
-        """Fetch digest for a specific Docker image tag with retry logic.
+    ) -> tuple[str, int] | None:
+        """Fetch digest and schema version for a specific Docker image tag with retry logic.
 
         Retries on network errors with exponential backoff.
         Does not retry on permanent errors (404, 401).
@@ -406,7 +406,8 @@ class DockerHubScraper(BaseScraper):
             max_retries: Maximum retry attempts (default: 3)
 
         Returns:
-            Digest string like 'sha256:abc123...' or None on failure.
+            Tuple of (digest, schema_version) like ('sha256:abc123...', 2) or None on failure.
+            Schema version 1 indicates deprecated format, version 2 is modern.
         """
         retry_count = 0
         base_delay = 1.0
@@ -419,7 +420,7 @@ class DockerHubScraper(BaseScraper):
                     logger.warning(f"No auth token for {namespace}/{name}:{tag}")
                     return None
 
-                # Request manifest to get digest
+                # Request manifest to get digest and schema version
                 url = f"https://registry-1.docker.io/v2/{namespace}/{name}/manifests/{tag}"
                 headers = {
                     "Accept": "application/vnd.docker.distribution.manifest.v2+json",
@@ -441,12 +442,26 @@ class DockerHubScraper(BaseScraper):
 
                     # Extract digest from response header
                     digest = response.headers.get("Docker-Content-Digest")
-                    if digest:
-                        logger.debug(f"Fetched digest for {namespace}/{name}:{tag} → {digest[:19]}...")
-                        return digest
-                    else:
+                    if not digest:
                         logger.warning(f"No digest header for {namespace}/{name}:{tag}")
                         return None
+
+                    # Parse response body to get schema version
+                    try:
+                        manifest_data = response.json()
+                        schema_version = manifest_data.get("schemaVersion", 0)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to parse manifest JSON for {namespace}/{name}:{tag}: {e}"
+                        )
+                        # Default to schema version 2 if we can't parse
+                        schema_version = 2
+
+                    logger.debug(
+                        f"Fetched digest for {namespace}/{name}:{tag} → "
+                        f"{digest[:19]}... (schema v{schema_version})"
+                    )
+                    return (digest, schema_version)
 
             except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as e:
                 # Transient network errors - retry with backoff
@@ -536,10 +551,20 @@ class DockerHubScraper(BaseScraper):
 
         # Fetch digest for selected tag with fallback logic
         selected_digest = None
+        schema_version = 2  # Default to modern schema
+        is_deprecated_format = False
         tool_id = f"docker_hub:{namespace}/{name}"
 
         if selected_tag:
-            selected_digest = await self._fetch_tag_digest(namespace, name, selected_tag)
+            result = await self._fetch_tag_digest(namespace, name, selected_tag)
+            if result:
+                selected_digest, schema_version = result
+                # Schema version 1 indicates deprecated format
+                if schema_version == 1:
+                    is_deprecated_format = True
+                    logger.warning(
+                        f"{tool_id} uses deprecated manifest schema v1 (unscannable by Trivy)"
+                    )
 
             # If primary tag fails, try fallback tags
             if not selected_digest and available_tags:
@@ -555,9 +580,17 @@ class DockerHubScraper(BaseScraper):
                 # Try fallback tags
                 for fallback_tag in fallback_tags:
                     logger.debug(f"Trying fallback tag '{fallback_tag}' for {tool_id}")
-                    selected_digest = await self._fetch_tag_digest(namespace, name, fallback_tag)
-                    if selected_digest:
+                    result = await self._fetch_tag_digest(namespace, name, fallback_tag)
+                    if result:
+                        selected_digest, schema_version = result
                         selected_tag = fallback_tag
+                        # Check schema version of fallback
+                        if schema_version == 1:
+                            is_deprecated_format = True
+                            logger.warning(
+                                f"{tool_id} (tag: {fallback_tag}) uses deprecated manifest "
+                                "schema v1 (unscannable by Trivy)"
+                            )
                         logger.info(f"Fallback tag '{fallback_tag}' succeeded for {tool_id}")
                         break
 
@@ -598,6 +631,7 @@ class DockerHubScraper(BaseScraper):
             selected_image_tag=selected_tag,
             selected_image_digest=selected_digest,
             digest_fetch_date=datetime.now(UTC) if selected_digest else None,
+            is_deprecated_image_format=is_deprecated_format,
         )
 
     async def scrape(self) -> AsyncIterator[Tool]:

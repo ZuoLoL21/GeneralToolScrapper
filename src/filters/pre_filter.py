@@ -86,13 +86,19 @@ class PreFilter:
             self._add_filter_reason(tool, FilterReasons.DEPRECATED)
             return True
 
-        # Check 3: Spam patterns
+        # Check 3: Deprecated image format (Docker manifest schema v1)
+        if self._is_deprecated_image_format(tool):
+            tool.filter_status.state = FilterState.EXCLUDED
+            self._add_filter_reason(tool, FilterReasons.DEPRECATED)
+            return True
+
+        # Check 4: Spam patterns
         if self._is_spam(tool):
             tool.filter_status.state = FilterState.EXCLUDED
             self._add_filter_reason(tool, FilterReasons.SPAM)
             return True
 
-        # Check 4: Forks (GitHub only)
+        # Check 5: Forks (GitHub only)
         if self._is_fork(tool):
             tool.filter_status.state = FilterState.EXCLUDED
             self._add_filter_reason(tool, FilterReasons.SPAM)
@@ -121,6 +127,19 @@ class PreFilter:
             True if tool is deprecated
         """
         return tool.maintenance.is_deprecated
+
+    def _is_deprecated_image_format(self, tool: Tool) -> bool:
+        """Check if Docker image uses deprecated manifest schema v1.
+
+        These images cannot be scanned by modern tools like Trivy.
+
+        Args:
+            tool: Tool to check
+
+        Returns:
+            True if tool uses deprecated Docker manifest schema v1
+        """
+        return tool.is_deprecated_image_format
 
     def _is_spam(self, tool: Tool) -> bool:
         """Check if tool name or description matches spam patterns.

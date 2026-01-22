@@ -226,6 +226,10 @@ class Tool(BaseModel):
         default=None,
         description="When the digest was fetched (for staleness tracking)"
     )
+    is_deprecated_image_format: bool = Field(
+        default=False,
+        description="Whether the image uses deprecated Docker manifest schema v1 (unscannable)"
+    )
     taxonomy_version: str = Field(default="1.0", description="Categorization version for re-runs")
     primary_category: str | None = Field(
         default=None, description="Primary category (databases, monitoring, etc.)"

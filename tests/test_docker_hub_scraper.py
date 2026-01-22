@@ -556,7 +556,7 @@ class TestDockerHubTagFetching:
         }
 
         mock_tags = ["latest", "stable", "alpine", "16-bullseye"]
-        mock_digest = "sha256:abc123def456"
+        mock_digest = ("sha256:abc123def456", 2)  # (digest, schema_version)
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
             with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest):
@@ -565,6 +565,7 @@ class TestDockerHubTagFetching:
         assert tool.selected_image_tag == "stable"  # 'stable' is now preferred over 'latest'
         assert tool.selected_image_digest == "sha256:abc123def456"
         assert tool.digest_fetch_date is not None
+        assert tool.is_deprecated_image_format is False  # Schema v2 is modern
 
     @pytest.mark.asyncio
     async def test_parse_tool_no_digest_on_fetch_failure(self, tmp_path: Path) -> None:
@@ -592,7 +593,7 @@ class TestDockerHubTagFetching:
         repo_data = {"name": "postgresql"}
 
         mock_tags = ["latest", "alpine", "16.1.12"]
-        mock_digest = "sha256:test123"
+        mock_digest = ("sha256:test123", 2)  # (digest, schema_version)
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
             with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest) as mock_fetch_digest:
@@ -603,6 +604,7 @@ class TestDockerHubTagFetching:
 
         assert tool.selected_image_tag == "latest"
         assert tool.selected_image_digest == "sha256:test123"
+        assert tool.is_deprecated_image_format is False
 
     @pytest.mark.asyncio
     async def test_digest_fetch_failure_logs_warning(self, tmp_path: Path) -> None:
@@ -621,3 +623,21 @@ class TestDockerHubTagFetching:
         assert tool.selected_image_tag == "latest"
         assert tool.selected_image_digest is None
         assert tool.digest_fetch_date is None
+
+    @pytest.mark.asyncio
+    async def test_deprecated_image_format_detection(self, tmp_path: Path) -> None:
+        """Test that deprecated manifest schema v1 is properly detected."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        repo_data = {"name": "docker-dev"}
+        mock_tags = ["latest"]
+        mock_digest_v1 = ("sha256:deprecated123", 1)  # Schema version 1 = deprecated
+
+        with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
+            with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest_v1):
+                tool = await scraper._parse_tool(repo_data, "library")
+
+        # Tool should be marked as deprecated format
+        assert tool.selected_image_tag == "latest"
+        assert tool.selected_image_digest == "sha256:deprecated123"
+        assert tool.is_deprecated_image_format is True
