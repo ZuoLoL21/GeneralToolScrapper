@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 
 from falkordb import FalkorDB
-
 from src.models import Tool
 
 # Constants
@@ -35,33 +34,36 @@ def get_or_create_lifecycle_node(graph, lifecycle: str) -> str:
     return lifecycle
 
 
-def get_or_create_maintainer_node(graph, maintainer_name: str, maintainer_type: str, verified: bool) -> str:
+def get_or_create_maintainer_node(
+    graph, maintainer_name: str, maintainer_type: str, verified: bool
+) -> str:
     """Get or create a Maintainer node."""
     query = """
     MERGE (m:Maintainer {name: $name, type: $type, verified: $verified})
     RETURN m
     """
-    graph.query(query, {
-        "name": maintainer_name,
-        "type": maintainer_type,
-        "verified": verified
-    })
+    graph.query(query, {"name": maintainer_name, "type": maintainer_type, "verified": verified})
     return maintainer_name
 
 
-def get_or_create_identity_node(graph, canonical_name: str, aliases: list[str], variants: list[str]) -> str:
+def get_or_create_identity_node(
+    graph, canonical_name: str, aliases: list[str], variants: list[str]
+) -> str:
     """Get or create an Identity node."""
     query = """
-    MERGE (i:Identity {canonical_name: $canonical_name})
+    MERGE (i:Identity {name: $name})
     ON CREATE SET i.aliases = $aliases, i.variants = $variants
     ON MATCH SET i.aliases = $aliases, i.variants = $variants
     RETURN i
     """
-    graph.query(query, {
-        "canonical_name": canonical_name,
-        "aliases": json.dumps(aliases),
-        "variants": json.dumps(variants)
-    })
+    graph.query(
+        query,
+        {
+            "name": canonical_name,
+            "aliases": json.dumps(aliases),
+            "variants": json.dumps(variants),
+        },
+    )
     return canonical_name
 
 
@@ -83,31 +85,23 @@ def get_or_create_category_node(graph, category: str, subcategory: str | None = 
         MERGE (c:Category {name: $category_full, category: $category, subcategory: $subcategory})
         RETURN c
         """
-        graph.query(query, {
-            "category_full": category_full,
-            "category": category,
-            "subcategory": subcategory
-        })
+        graph.query(
+            query,
+            {"category_full": category_full, "category": category, "subcategory": subcategory},
+        )
     else:
         category_full = category
         query = """
         MERGE (c:Category {name: $category_full, category: $category})
         RETURN c
         """
-        graph.query(query, {
-            "category_full": category_full,
-            "category": category
-        })
+        graph.query(query, {"category_full": category_full, "category": category})
     return category_full
 
 
-def add_to_falkordb(tool_dict):
+def add_to_falkordb(graph, tool_dict):
     """Add tool to graph."""
     tool: Tool = Tool.model_validate(tool_dict)
-
-    # Connect to FalkorDB
-    db = FalkorDB(host='localhost', port=6379)
-    graph = db.select_graph(GRAPH_NAME)
 
     # Create Tool node with all properties
     tool_properties = {
@@ -116,12 +110,10 @@ def add_to_falkordb(tool_dict):
         "source": tool.source.value,
         "source_url": tool.source_url,
         "description": tool.description,
-
         # Metrics
         "downloads": tool.metrics.downloads,
         "stars": tool.metrics.stars,
         "usage_amount": tool.metrics.usage_amount,
-
         # Security
         "security_status": tool.security.status.value,
         "trivy_scan_date": serialize_datetime(tool.security.trivy_scan_date),
@@ -132,13 +124,11 @@ def add_to_falkordb(tool_dict):
         "vuln_high": tool.security.vulnerabilities.high,
         "vuln_medium": tool.security.vulnerabilities.medium,
         "vuln_low": tool.security.vulnerabilities.low,
-
         # Maintenance
         "created_at": serialize_datetime(tool.maintenance.created_at),
         "last_updated": serialize_datetime(tool.maintenance.last_updated),
         "update_frequency_days": tool.maintenance.update_frequency_days,
         "is_deprecated": tool.maintenance.is_deprecated,
-
         # Docker/Tags
         "selected_image_tag": tool.selected_image_tag,
         "selected_image_digest": tool.selected_image_digest,
@@ -149,16 +139,13 @@ def add_to_falkordb(tool_dict):
         "digest_fetch_attempts": tool.digest_fetch_attempts,
         "tag_extraction_status": tool.tag_extraction_status,
         "is_deprecated_image_format": tool.is_deprecated_image_format,
-
         # Categories
         "taxonomy_version": tool.taxonomy_version,
         "primary_category": tool.primary_category,
         "primary_subcategory": tool.primary_subcategory,
         "secondary_categories": json.dumps(tool.secondary_categories),
-
         # Keywords
         "keyword_version": tool.keyword_version,
-
         # Scores
         "quality_score": tool.quality_score,
         "score_popularity": tool.score_breakdown.popularity,
@@ -167,14 +154,12 @@ def add_to_falkordb(tool_dict):
         "score_trust": tool.score_breakdown.trust,
         "score_dominant_dimension": tool.score_analysis.dominant_dimension.value,
         "score_dominance_ratio": tool.score_analysis.dominance_ratio,
-
         # Filter
         "filter_state": tool.filter_status.state.value,
         "filter_reasons": json.dumps(tool.filter_status.reasons),
-
         # Metadata
         "scraped_at": serialize_datetime(tool.scraped_at),
-        "schema_version": tool.schema_version
+        "schema_version": tool.schema_version,
     }
 
     # Create Tool node
@@ -187,85 +172,100 @@ def add_to_falkordb(tool_dict):
 
     # Create and connect Source node
     get_or_create_source_node(graph, tool.source.value)
-    graph.query("""
+    graph.query(
+        """
         MATCH (t:Tool {id: $tool_id})
         MATCH (s:Source {name: $source})
         MERGE (t)-[:FROM_SOURCE]->(s)
-    """, {"tool_id": tool.id, "source": tool.source.value})
+    """,
+        {"tool_id": tool.id, "source": tool.source.value},
+    )
 
     # Create and connect Lifecycle node
     get_or_create_lifecycle_node(graph, tool.lifecycle.value)
-    graph.query("""
+    graph.query(
+        """
         MATCH (t:Tool {id: $tool_id})
         MATCH (l:Lifecycle {name: $lifecycle})
         MERGE (t)-[:IN_LIFECYCLE]->(l)
-    """, {"tool_id": tool.id, "lifecycle": tool.lifecycle.value})
+    """,
+        {"tool_id": tool.id, "lifecycle": tool.lifecycle.value},
+    )
 
     # Create and connect Maintainer node
     get_or_create_maintainer_node(
-        graph,
-        tool.maintainer.name,
-        tool.maintainer.type.value,
-        tool.maintainer.verified
+        graph, tool.maintainer.name, tool.maintainer.type.value, tool.maintainer.verified
     )
-    graph.query("""
+    graph.query(
+        """
         MATCH (t:Tool {id: $tool_id})
         MATCH (m:Maintainer {name: $maintainer_name, type: $maintainer_type, verified: $verified})
         MERGE (t)-[:MAINTAINED_BY]->(m)
-    """, {
-        "tool_id": tool.id,
-        "maintainer_name": tool.maintainer.name,
-        "maintainer_type": tool.maintainer.type.value,
-        "verified": tool.maintainer.verified
-    })
+    """,
+        {
+            "tool_id": tool.id,
+            "maintainer_name": tool.maintainer.name,
+            "maintainer_type": tool.maintainer.type.value,
+            "verified": tool.maintainer.verified,
+        },
+    )
 
     # Create and connect Identity node
     get_or_create_identity_node(
-        graph,
-        tool.identity.canonical_name,
-        tool.identity.aliases,
-        tool.identity.variants
+        graph, tool.identity.canonical_name, tool.identity.aliases, tool.identity.variants
     )
-    graph.query("""
+    graph.query(
+        """
         MATCH (t:Tool {id: $tool_id})
-        MATCH (i:Identity {canonical_name: $canonical_name})
+        MATCH (i:Identity {name: $canonical_name})
         MERGE (t)-[:HAS_IDENTITY]->(i)
-    """, {"tool_id": tool.id, "canonical_name": tool.identity.canonical_name})
+    """,
+        {"tool_id": tool.id, "canonical_name": tool.identity.canonical_name},
+    )
 
     # Create and connect Tag nodes (from both tags and keywords)
     all_tags = list(set(tool.tags + tool.keywords))
-    for tag in all_tags:
-        get_or_create_tag_node(graph, tag)
-        graph.query("""
-            MATCH (t:Tool {id: $tool_id})
-            MATCH (tag:Tag {name: $tag_name})
-            MERGE (t)-[:HAS_TAG]->(tag)
-        """, {"tool_id": tool.id, "tag_name": tag})
+    if all_tags:
+        for tag in all_tags:
+            if tag:  # Skip empty tags
+                get_or_create_tag_node(graph, tag)
+                graph.query(
+                    """
+                    MATCH (t:Tool {id: $tool_id})
+                    MATCH (tag:Tag {name: $tag_name})
+                    MERGE (t)-[:HAS_TAG]->(tag)
+                """,
+                    {"tool_id": tool.id, "tag_name": tag},
+                )
 
     # Create and connect Category nodes
     if tool.primary_category:
         category_name = get_or_create_category_node(
-            graph,
-            tool.primary_category,
-            tool.primary_subcategory
+            graph, tool.primary_category, tool.primary_subcategory
         )
-        graph.query("""
+        graph.query(
+            """
             MATCH (t:Tool {id: $tool_id})
             MATCH (c:Category {name: $category_name})
             MERGE (t)-[:IN_CATEGORY {is_primary: true}]->(c)
-        """, {"tool_id": tool.id, "category_name": category_name})
+        """,
+            {"tool_id": tool.id, "category_name": category_name},
+        )
 
     for secondary_category in tool.secondary_categories:
         get_or_create_category_node(graph, secondary_category)
-        graph.query("""
+        graph.query(
+            """
             MATCH (t:Tool {id: $tool_id})
             MATCH (c:Category {name: $category_name})
             MERGE (t)-[:IN_CATEGORY {is_primary: false}]->(c)
-        """, {"tool_id": tool.id, "category_name": secondary_category})
+        """,
+            {"tool_id": tool.id, "category_name": secondary_category},
+        )
 
 
 def get_tools():
-    with open("falkordb/tools.json") as f:
+    with open("tools.json") as f:
         dict_tools = json.load(f)["tools"]
 
     return [Tool.model_validate(dict_tool) for dict_tool in dict_tools]
@@ -275,11 +275,27 @@ def main():
     tools = get_tools()
     print(f"Processing {len(tools)} tools...")
 
-    for i, tool in enumerate(tools):
-        print(f"Adding tool {i+1}/{len(tools)}: {tool.id}")
-        add_to_falkordb(tool.model_dump())
+    # Connect to FalkorDB once
+    db = FalkorDB(host="localhost", port=6379)
+    graph = db.select_graph(GRAPH_NAME)
 
-    print("Done!")
+    for i, tool in enumerate(tools):
+        try:
+            print(f"\n[{i + 1}/{len(tools)}] Adding tool: {tool.id}")
+            print(f"  - Tags: {len(tool.tags)}, Keywords: {len(tool.keywords)}")
+            print(f"  - Primary category: {tool.primary_category}/{tool.primary_subcategory}")
+            print(f"  - Secondary categories: {tool.secondary_categories}")
+            print(f"  - Identity: {tool.identity.canonical_name}")
+
+            add_to_falkordb(graph, tool.model_dump())
+            print("  ✓ Successfully added")
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+    print("\n=== Done! ===")
 
 
 if __name__ == "__main__":
