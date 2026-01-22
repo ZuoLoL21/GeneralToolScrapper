@@ -226,6 +226,27 @@ class Tool(BaseModel):
         default=None,
         description="When the digest was fetched (for staleness tracking)"
     )
+    docker_tags: list[str] = Field(
+        default_factory=list,
+        description="Available Docker image tags from Docker Hub (e.g., ['latest', 'alpine', '16.1.12'])"
+    )
+    digest_fetch_status: str | None = Field(
+        default=None,
+        description="Status: 'success', 'no_tags', 'auth_failed', 'network_error', 'not_found', 'fallback_used', 'unknown_error'"
+    )
+    digest_fetch_error: str | None = Field(
+        default=None,
+        description="Human-readable error message if digest fetch failed"
+    )
+    digest_fetch_attempts: int = Field(
+        default=0,
+        ge=0,
+        description="Number of tags attempted before success or failure"
+    )
+    tag_extraction_status: str | None = Field(
+        default=None,
+        description="Status: 'success', 'no_categories_field', 'empty_categories', 'invalid_format'"
+    )
     is_deprecated_image_format: bool = Field(
         default=False,
         description="Whether the image uses deprecated Docker manifest schema v1 (unscannable)"

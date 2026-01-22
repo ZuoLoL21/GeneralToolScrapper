@@ -129,3 +129,18 @@ DOCKER_DIGEST_STALENESS_DAYS = 30  # Refetch digest after 30 days
 TRIVY_UNSCANNABLE_IMAGES = [
     "docker_hub:library/scratch",  # Virtual base image, cannot be pulled
 ]
+
+# Digest fetch status codes
+DIGEST_FETCH_SUCCESS = "success"
+DIGEST_FETCH_NO_TAGS = "no_tags"
+DIGEST_FETCH_AUTH_FAILED = "auth_failed"
+DIGEST_FETCH_NETWORK_ERROR = "network_error"
+DIGEST_FETCH_NOT_FOUND = "not_found"
+DIGEST_FETCH_FALLBACK_USED = "fallback_used"
+DIGEST_FETCH_UNKNOWN_ERROR = "unknown_error"
+
+# Tag extraction status codes
+TAG_EXTRACTION_SUCCESS = "success"
+TAG_EXTRACTION_NO_CATEGORIES = "no_categories_field"
+TAG_EXTRACTION_EMPTY_CATEGORIES = "empty_categories"
+TAG_EXTRACTION_INVALID_FORMAT = "invalid_format"

@@ -17,7 +17,20 @@ from typing import Any
 
 import httpx
 
-from src.consts import DEFAULT_DATA_DIR
+from src.consts import (
+    DEFAULT_DATA_DIR,
+    DIGEST_FETCH_AUTH_FAILED,
+    DIGEST_FETCH_FALLBACK_USED,
+    DIGEST_FETCH_NETWORK_ERROR,
+    DIGEST_FETCH_NOT_FOUND,
+    DIGEST_FETCH_NO_TAGS,
+    DIGEST_FETCH_SUCCESS,
+    DIGEST_FETCH_UNKNOWN_ERROR,
+    TAG_EXTRACTION_EMPTY_CATEGORIES,
+    TAG_EXTRACTION_INVALID_FORMAT,
+    TAG_EXTRACTION_NO_CATEGORIES,
+    TAG_EXTRACTION_SUCCESS,
+)
 from src.models.model_tool import (
     Identity,
     Lifecycle,
@@ -36,16 +49,48 @@ from src.scrapers.docker_hub.scrape_queue import ScrapeQueue
 logger = logging.getLogger(__name__)
 
 
-def _extract_tags(repo: dict[str, Any]) -> list[str]:
-    """Extract tags from repository data, handling different API formats."""
-    categories = repo.get("categories", []) or []
+def _extract_tags(repo: dict[str, Any]) -> tuple[list[str], str]:
+    """Extract tags from repository data with status tracking.
+
+    Returns:
+        Tuple of (tags, status) where status is one of:
+        - TAG_EXTRACTION_SUCCESS: Successfully extracted tags
+        - TAG_EXTRACTION_NO_CATEGORIES: No 'categories' field in data
+        - TAG_EXTRACTION_EMPTY_CATEGORIES: 'categories' field exists but is empty
+        - TAG_EXTRACTION_INVALID_FORMAT: Categories exist but have unexpected format
+    """
+    categories = repo.get("categories")
+
+    # Check if field exists (None means missing, empty list means present but empty)
+    if categories is None:
+        logger.debug("No 'categories' field in repository data")
+        return [], TAG_EXTRACTION_NO_CATEGORIES
+
+    if not categories:
+        logger.debug("'categories' field exists but is empty")
+        return [], TAG_EXTRACTION_EMPTY_CATEGORIES
+
+    # Extract tags from categories
     tags: list[str] = []
+    invalid_count = 0
+
     for cat in categories:
         if isinstance(cat, str):
             tags.append(cat)
         elif isinstance(cat, dict) and "name" in cat:
             tags.append(cat["name"])
-    return tags
+        else:
+            invalid_count += 1
+            logger.debug(f"Invalid category format: {type(cat)}")
+
+    if tags:
+        if invalid_count > 0:
+            logger.debug(f"Extracted {len(tags)} tags with {invalid_count} invalid entries")
+        return tags, TAG_EXTRACTION_SUCCESS
+    else:
+        # Had categories but couldn't extract any valid tags
+        logger.warning(f"Categories exist but all entries have invalid format ({len(categories)} entries)")
+        return [], TAG_EXTRACTION_INVALID_FORMAT
 
 
 class DockerHubScraper(BaseScraper):
@@ -249,8 +294,8 @@ class DockerHubScraper(BaseScraper):
         namespace: str,
         name: str,
         limit: int = 50,
-    ) -> list[str]:
-        """Fetch available Docker image tags for a repository.
+    ) -> tuple[list[str], str | None, str | None]:
+        """Fetch available Docker image tags for a repository with status tracking.
 
         Called DURING SCRAPING to get available tags upfront.
 
@@ -260,14 +305,20 @@ class DockerHubScraper(BaseScraper):
             limit: Max tags to fetch (default: 50).
 
         Returns:
-            List of tag names (e.g., ["latest", "alpine", "1.0.5", "16-bullseye"]).
+            Tuple of (tags, status, error) where:
+            - tags: List of tag names (e.g., ["latest", "alpine", "1.0.5", "16-bullseye"])
+            - status: Status code (DIGEST_FETCH_SUCCESS, DIGEST_FETCH_NOT_FOUND, etc.) or None
+            - error: Human-readable error message or None
         """
+        tool_id = f"docker_hub:{namespace}/{name}"
+
         try:
             endpoint = f"/repositories/{namespace}/{name}/tags"
             data = await self._request(endpoint, params={"page_size": limit})
 
             if not data:
-                return []
+                logger.debug(f"[{tool_id}] Empty response when fetching tags")
+                return [], DIGEST_FETCH_NO_TAGS, "Empty response from tags API"
 
             # Extract tag names from results
             tags = []
@@ -275,18 +326,36 @@ class DockerHubScraper(BaseScraper):
                 if isinstance(tag_obj, dict) and "name" in tag_obj:
                     tags.append(tag_obj["name"])
 
-            logger.debug(f"Fetched {len(tags)} tags for {namespace}/{name}")
-            return tags
+            if not tags:
+                logger.info(f"[{tool_id}] No tags found in response")
+                return [], DIGEST_FETCH_NO_TAGS, "Repository has no tags"
+
+            logger.debug(f"[{tool_id}] Fetched {len(tags)} tags")
+            return tags, None, None  # Success - no status needed here
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                logger.debug(f"No tags found for {namespace}/{name}")
-                return []
-            logger.warning(f"Failed to fetch tags for {namespace}/{name}: {e}")
-            return []
+                error_msg = "Repository not found (404)"
+                logger.info(f"[{tool_id}] {error_msg}")
+                return [], DIGEST_FETCH_NOT_FOUND, error_msg
+            elif e.response.status_code in (401, 403):
+                error_msg = f"Authentication failed ({e.response.status_code})"
+                logger.warning(f"[{tool_id}] {error_msg}")
+                return [], DIGEST_FETCH_AUTH_FAILED, error_msg
+            else:
+                error_msg = f"HTTP error ({e.response.status_code}): {str(e)[:100]}"
+                logger.warning(f"[{tool_id}] {error_msg}")
+                return [], DIGEST_FETCH_UNKNOWN_ERROR, error_msg
+
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as e:
+            error_msg = f"Network error: {str(e)[:100]}"
+            logger.warning(f"[{tool_id}] {error_msg}")
+            return [], DIGEST_FETCH_NETWORK_ERROR, error_msg
+
         except Exception as e:
-            logger.warning(f"Error fetching tags for {namespace}/{name}: {e}")
-            return []
+            error_msg = f"Unexpected error: {str(e)[:100]}"
+            logger.warning(f"[{tool_id}] {error_msg}")
+            return [], DIGEST_FETCH_UNKNOWN_ERROR, error_msg
 
     def _select_tag_for_digest(self, available_tags: list[str]) -> str | None:
         """Select best tag for digest retrieval with enhanced priority.
@@ -513,6 +582,7 @@ class DockerHubScraper(BaseScraper):
         """
         name = repo.get("name", "")
         full_name = f"{namespace}/{name}" if namespace != "library" else name
+        tool_id = f"docker_hub:{namespace}/{name}"
 
         # Determine maintainer type
         if namespace == "library" or repo.get("is_official", False):
@@ -543,8 +613,16 @@ class DockerHubScraper(BaseScraper):
             elif days_since_update > 180:
                 lifecycle = Lifecycle.STABLE
 
-        # Fetch available tags and select best tag for digest retrieval
-        available_tags = await self._fetch_available_tags(namespace, name)
+        # Extract categorical tags with status tracking
+        extracted_tags, tag_status = _extract_tags(repo)
+
+        # Fetch available Docker image tags and select best tag for digest retrieval
+        available_tags, tag_fetch_status, tag_fetch_error = await self._fetch_available_tags(namespace, name)
+
+        # Initialize digest tracking variables
+        digest_status = tag_fetch_status  # Start with tag fetch status
+        digest_error = tag_fetch_error
+        attempt_count = 0
 
         # Select best tag based on priority
         selected_tag = self._select_tag_for_digest(available_tags)
@@ -553,22 +631,33 @@ class DockerHubScraper(BaseScraper):
         selected_digest = None
         schema_version = 2  # Default to modern schema
         is_deprecated_format = False
-        tool_id = f"docker_hub:{namespace}/{name}"
 
-        if selected_tag:
+        if not selected_tag:
+            # No tags available - use error from tag fetch if available
+            if digest_status is None:
+                digest_status = DIGEST_FETCH_NO_TAGS
+            if digest_error is None:
+                digest_error = "No tags available for digest retrieval"
+            logger.warning(f"[{tool_id}] {digest_error}")
+        else:
+            # Try primary tag
+            attempt_count = 1
             result = await self._fetch_tag_digest(namespace, name, selected_tag)
+
             if result:
                 selected_digest, schema_version = result
+                digest_status = DIGEST_FETCH_SUCCESS
+
                 # Schema version 1 indicates deprecated format
                 if schema_version == 1:
                     is_deprecated_format = True
                     logger.warning(
-                        f"{tool_id} uses deprecated manifest schema v1 (unscannable by Trivy)"
+                        f"[{tool_id}] Uses deprecated manifest schema v1 (unscannable by Trivy)"
                     )
-
-            # If primary tag fails, try fallback tags
-            if not selected_digest and available_tags:
-                logger.info(f"Primary tag '{selected_tag}' failed for {tool_id}, trying fallbacks")
+                logger.info(f"[{tool_id}] Successfully fetched digest for tag '{selected_tag}'")
+            else:
+                # Primary tag failed, try fallback tags
+                logger.info(f"[{tool_id}] Primary tag '{selected_tag}' failed, trying fallbacks")
 
                 # Define fallback sequence
                 fallback_tags = ["stable", "latest", "lts", "alpine"]
@@ -579,31 +668,33 @@ class DockerHubScraper(BaseScraper):
 
                 # Try fallback tags
                 for fallback_tag in fallback_tags:
-                    logger.debug(f"Trying fallback tag '{fallback_tag}' for {tool_id}")
+                    attempt_count += 1
+                    logger.debug(f"[{tool_id}] Trying fallback tag '{fallback_tag}'")
                     result = await self._fetch_tag_digest(namespace, name, fallback_tag)
+
                     if result:
                         selected_digest, schema_version = result
                         selected_tag = fallback_tag
+                        digest_status = DIGEST_FETCH_FALLBACK_USED
+
                         # Check schema version of fallback
                         if schema_version == 1:
                             is_deprecated_format = True
                             logger.warning(
-                                f"{tool_id} (tag: {fallback_tag}) uses deprecated manifest "
+                                f"[{tool_id}] (tag: {fallback_tag}) uses deprecated manifest "
                                 "schema v1 (unscannable by Trivy)"
                             )
-                        logger.info(f"Fallback tag '{fallback_tag}' succeeded for {tool_id}")
+                        logger.info(f"[{tool_id}] Fallback tag '{fallback_tag}' succeeded after {attempt_count} attempts")
                         break
 
-            if not selected_digest:
-                logger.warning(
-                    f"Failed to fetch digest for {tool_id} after trying "
-                    f"tag: {selected_tag} and fallbacks"
-                )
-        else:
-            logger.warning(f"No tags available for {tool_id}")
+                # If all attempts failed
+                if not selected_digest:
+                    digest_status = DIGEST_FETCH_UNKNOWN_ERROR
+                    digest_error = f"Failed to fetch digest after {attempt_count} attempts (tried: {selected_tag}, {', '.join(fallback_tags)})"
+                    logger.warning(f"[{tool_id}] {digest_error}")
 
         return Tool(
-            id=f"docker_hub:{namespace}/{name}",
+            id=tool_id,
             name=full_name,
             source=SourceType.DOCKER_HUB,
             source_url=f"https://hub.docker.com/r/{namespace}/{name}",
@@ -627,10 +718,15 @@ class DockerHubScraper(BaseScraper):
                 is_deprecated=repo.get("is_archived", False),
             ),
             lifecycle=lifecycle,
-            tags=_extract_tags(repo),
+            tags=extracted_tags,
+            tag_extraction_status=tag_status,
             selected_image_tag=selected_tag,
             selected_image_digest=selected_digest,
             digest_fetch_date=datetime.now(UTC) if selected_digest else None,
+            docker_tags=available_tags,
+            digest_fetch_status=digest_status,
+            digest_fetch_error=digest_error,
+            digest_fetch_attempts=attempt_count,
             is_deprecated_image_format=is_deprecated_format,
         )
 
@@ -744,74 +840,67 @@ class DockerHubScraper(BaseScraper):
         logger.info("Cleared Docker Hub scrape queue")
 
 
-async def main1() -> None:
-    # Create scraper for official Docker images
-    scraper = DockerHubScraper(
-        request_delay_ms=100,
-        use_cache=True,
-        namespaces=["library"],  # Official images only
-    )
+async def main() -> None:
+    """Test Docker Hub scraper with enhanced tracking.
 
-    print("=== Docker Hub Scraper Example ===\n")
+    Tests edge cases:
+    - Normal case: postgres (should succeed)
+    - No pullable tags: scratch (should fail with no_tags)
+    - Non-existent: nonexistent (should fail with not_found)
+    """
+    import logging
 
-    # Example 1: Fetch details for a specific tool
-    print("1. Fetching details for 'postgres'...")
-    tool = await scraper.get_tool_details("docker_hub:library/postgres")
-    if tool:
-        print(tool.model_dump_json(indent=4))
-    print()
-
-
-async def main2() -> None:
-    # Example 2: Scrape first 5 tools from a namespace
-    print("2. Scraping first 100 official images...")
-    scraper2 = DockerHubScraper(
-        namespaces=["library"],
-    )
-
-    count = 0
-    async for tool in scraper2.scrape_with_resume(resume=False):
-        count += 1
-        print(f"   [{count}] {tool.name}: {tool.metrics.downloads:,} downloads")
-        if count >= 100:
-            break
-
-    # Clean up the client
-    if scraper2._client:
-        await scraper2._client.aclose()
-
-    print("\nDone!")
-
-
-async def main_multiple_namespaces() -> None:
-    """Example: Scrape from multiple namespaces."""
-    print("\n3. Scraping from multiple namespaces (library, bitnami)...")
-    scraper = DockerHubScraper(
-        namespaces=["library", "bitnami"],
-        request_delay_ms=100,
-    )
-
-    count = 0
-    async for tool in scraper.scrape_with_resume(resume=False):
-        namespace = tool.id.split(":")[1].split("/")[0]
-        print(f"   [{count+1}] {tool.name} (namespace: {namespace})")
-        count += 1
-        if count >= 10:
-            break
-
-    # Clean up the client
-    if scraper._client:
-        await scraper._client.aclose()
-
-    print("Successfully scraped from multiple namespaces")
-
-
-if __name__ == "__main__":
-    # Configure logging to see what's happening
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    asyncio.run(main1())
-    asyncio.run(main2())
-    asyncio.run(main_multiple_namespaces())
+
+    scraper = DockerHubScraper(namespaces=["library"])
+
+    print("=== Docker Hub Scraper Enhanced Tracking Test ===\n")
+
+    # Test edge cases
+    test_cases = [
+        ("library", "postgres", "Should succeed with digest and tags"),
+        ("library", "scratch", "Should fail - no pullable tags"),
+        ("library", "nonexistent-image-xyz", "Should fail - 404 not found"),
+    ]
+
+    for namespace, name, expected in test_cases:
+        print(f"\n{'='*60}")
+        print(f"Testing: {namespace}/{name}")
+        print(f"Expected: {expected}")
+        print(f"{'='*60}")
+
+        # Fetch available tags
+        tags, status, error = await scraper._fetch_available_tags(namespace, name)
+        print(f"  Available tags: {tags[:5] if tags else '[]'} ({len(tags)} total)")
+        print(f"  Tag fetch status: {status}")
+        print(f"  Tag fetch error: {error}")
+
+        if tags:
+            # Select tag and try to fetch digest
+            selected = scraper._select_tag_for_digest(tags)
+            print(f"  Selected tag: {selected}")
+
+            if selected:
+                result = await scraper._fetch_tag_digest(namespace, name, selected)
+                if result:
+                    digest, schema_version = result
+                    print(f"  Digest: {digest[:25]}... (schema v{schema_version})")
+                    print(f"  Status: SUCCESS")
+                else:
+                    print(f"  Digest: None")
+                    print(f"  Status: FAILED")
+
+    # Clean up
+    if scraper._client:
+        await scraper._client.aclose()
+
+    print(f"\n{'='*60}")
+    print("Test complete!")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

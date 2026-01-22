@@ -11,6 +11,10 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from src.consts import (
+    DIGEST_FETCH_SUCCESS,
+    TAG_EXTRACTION_SUCCESS,
+)
 from src.models.model_tool import SourceType, Tool
 from src.pipeline import load_processed_tools, run_scrape_pipeline
 
@@ -558,6 +562,112 @@ def scan(
             console.print(f"  [dim]{tool_id}:[/dim] {error[:80]}")
         if len(result.failures) > 5:
             console.print(f"  [dim]... and {len(result.failures) - 5} more[/dim]")
+
+
+@app.command()
+def diagnose(
+    limit: int = typer.Option(None, "--limit", "-l", help="Number of tools to analyze (default: all)"),
+) -> None:
+    """Diagnose digest and tag extraction issues.
+
+    Analyzes tools and shows:
+    - Digest fetch status distribution
+    - Tag extraction status distribution
+    - Example failures with error messages
+    """
+    # Load tools
+    tools = load_processed_tools()
+
+    if not tools:
+        console.print("[yellow]No tools found. Run 'gts scrape' first.[/yellow]")
+        return
+
+    # Apply limit
+    if limit:
+        tools = tools[:limit]
+
+    console.print(f"\n[bold]Analyzing {len(tools)} tools...[/bold]\n")
+
+    # Count statuses
+    digest_status_counts: dict[str, int] = {}
+    tag_status_counts: dict[str, int] = {}
+    failures: list[tuple[str, str | None, str | None]] = []
+
+    for tool in tools:
+        # Count digest fetch status
+        digest_status = tool.digest_fetch_status or "not_attempted"
+        digest_status_counts[digest_status] = digest_status_counts.get(digest_status, 0) + 1
+
+        # Count tag extraction status
+        tag_status = tool.tag_extraction_status or "unknown"
+        tag_status_counts[tag_status] = tag_status_counts.get(tag_status, 0) + 1
+
+        # Collect failures (non-success statuses with errors)
+        if tool.digest_fetch_status and tool.digest_fetch_status != DIGEST_FETCH_SUCCESS:
+            failures.append((tool.id, tool.digest_fetch_status, tool.digest_fetch_error))
+
+    # Display digest fetch status distribution
+    digest_table = Table(title="Digest Fetch Status Distribution")
+    digest_table.add_column("Status", style="cyan")
+    digest_table.add_column("Count", justify="right", style="magenta")
+    digest_table.add_column("Percentage", justify="right", style="green")
+
+    total = len(tools)
+    for status in sorted(digest_status_counts.keys()):
+        count = digest_status_counts[status]
+        percentage = (count / total) * 100
+        color = "green" if status == DIGEST_FETCH_SUCCESS else "yellow" if status == "not_attempted" else "red"
+        digest_table.add_row(
+            status,
+            str(count),
+            f"[{color}]{percentage:.1f}%[/{color}]",
+        )
+
+    console.print(digest_table)
+    console.print()
+
+    # Display tag extraction status distribution
+    tag_table = Table(title="Tag Extraction Status Distribution")
+    tag_table.add_column("Status", style="cyan")
+    tag_table.add_column("Count", justify="right", style="magenta")
+    tag_table.add_column("Percentage", justify="right", style="green")
+
+    for status in sorted(tag_status_counts.keys()):
+        count = tag_status_counts[status]
+        percentage = (count / total) * 100
+        color = "green" if status == TAG_EXTRACTION_SUCCESS else "yellow"
+        tag_table.add_row(
+            status,
+            str(count),
+            f"[{color}]{percentage:.1f}%[/{color}]",
+        )
+
+    console.print(tag_table)
+    console.print()
+
+    # Display example failures (top 10)
+    if failures:
+        failure_table = Table(title=f"Example Failures (showing {min(10, len(failures))} of {len(failures)})")
+        failure_table.add_column("Tool ID", style="cyan", no_wrap=True)
+        failure_table.add_column("Status", style="yellow")
+        failure_table.add_column("Error Message", style="red")
+
+        for tool_id, status, error in failures[:10]:
+            error_str = _truncate(error or "No error message", 60)
+            failure_table.add_row(tool_id, status or "unknown", error_str)
+
+        console.print(failure_table)
+    else:
+        console.print("[green]No failures detected![/green]")
+
+    # Summary statistics
+    console.print()
+    success_count = digest_status_counts.get(DIGEST_FETCH_SUCCESS, 0)
+    success_rate = (success_count / total) * 100 if total > 0 else 0
+    console.print(f"[bold]Summary:[/bold]")
+    console.print(f"  Total tools analyzed: {total}")
+    console.print(f"  Digest fetch success rate: [{_get_score_color(success_rate)}]{success_rate:.1f}%[/{_get_score_color(success_rate)}]")
+    console.print(f"  Total failures: {len(failures)}")
 
 
 if __name__ == "__main__":

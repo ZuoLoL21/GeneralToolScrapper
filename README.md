@@ -528,6 +528,86 @@ gts scan --limit 50
 - Existing scans continue to work
 - Graceful degradation if new features fail
 
+### 2026-01-22: Enhanced Digest and Tag Tracking
+
+**Problem**: `selected_image_digest` and `tags` were frequently null/empty without visibility into root causes.
+
+**Solution**: Added structured tracking fields to record fetch outcomes and enable diagnostics.
+
+**New Features:**
+
+1. **Structured Digest Fetch Tracking**
+   - `digest_fetch_status`: Status code (success, no_tags, auth_failed, network_error, not_found, fallback_used, unknown_error)
+   - `digest_fetch_error`: Human-readable error message
+   - `digest_fetch_attempts`: Number of tags attempted before success or failure
+   - Clear logging with tool ID context for better debugging
+
+2. **Tag Extraction Status Tracking**
+   - `tag_extraction_status`: Status code (success, no_categories_field, empty_categories, invalid_format)
+   - Distinguishes between "no field" vs "empty" vs "invalid format"
+   - Debug logging for invalid category formats
+
+3. **docker_tags Field Implementation** (from 2026-01-21 changelog)
+   - `docker_tags`: Available Docker image tags (e.g., ['latest', 'alpine', '16.1.12'])
+   - Separates categorical tags (`tags`) from image tags (`docker_tags`)
+   - Stored during scraping for future use
+
+**New CLI Commands:**
+- `gts diagnose`: Analyze digest/tag status distribution across tools
+  - Shows digest fetch status distribution with percentages
+  - Shows tag extraction status distribution
+  - Displays example failures with error messages
+  - Calculates overall success rates
+
+**Modified Files:**
+- `src/models/model_tool.py`: Added 5 tracking fields (digest_fetch_status, digest_fetch_error, digest_fetch_attempts, tag_extraction_status, docker_tags)
+- `src/consts.py`: Added 11 status constants (7 DIGEST_FETCH_*, 4 TAG_EXTRACTION_*)
+- `src/scrapers/docker_hub/docker_hub.py`: Enhanced _extract_tags(), _fetch_available_tags(), _parse_tool() with status tracking
+- `src/cli.py`: Added diagnose command with Rich tables
+
+**Backward Compatibility:**
+- All new fields are optional (default None or empty list)
+- Existing data loads without errors
+- No breaking changes to existing functionality
+
+**Example Usage:**
+
+```bash
+# Scrape with enhanced tracking
+gts scrape --source docker_hub --namespaces library --limit 50
+
+# Run diagnostics
+gts diagnose --limit 50
+
+# Expected output:
+# Digest Fetch Status Distribution
+# ─────────────────────────────────
+# success:         65  (65.0%)
+# fallback_used:   15  (15.0%)
+# no_tags:          8  (8.0%)
+# network_error:    7  (7.0%)
+# auth_failed:      3  (3.0%)
+# not_found:        2  (2.0%)
+#
+# Tag Extraction Status Distribution
+# ───────────────────────────────────
+# success:              45  (45.0%)
+# no_categories_field:  40  (40.0%)
+# empty_categories:     15  (15.0%)
+```
+
+**Testing:**
+
+```bash
+# Test enhanced tracking with edge cases
+python -m src.scrapers.docker_hub.docker_hub
+
+# Tests:
+# - postgres: Should succeed with digest and tags
+# - scratch: Should fail with no_tags status
+# - nonexistent: Should fail with not_found status
+```
+
 ### 2026-01-21: Enhanced Trivy Scanning with Smart Tag Selection and Incremental Saving
 
 Major improvements to Trivy security scanning with smart Docker tag selection, scanned tag tracking, and crash-resilient incremental saving.

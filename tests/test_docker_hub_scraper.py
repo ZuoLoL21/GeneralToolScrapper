@@ -496,9 +496,11 @@ class TestDockerHubTagFetching:
         }
 
         with patch.object(scraper, "_request", return_value=mock_tags_response):
-            tags = await scraper._fetch_available_tags("library", "postgres")
+            tags, status, error = await scraper._fetch_available_tags("library", "postgres")
 
         assert tags == ["latest", "stable", "alpine", "16-bullseye", "15.2.0"]
+        assert status is None  # Success has no status
+        assert error is None
 
     @pytest.mark.asyncio
     async def test_fetch_available_tags_404_returns_empty(self, tmp_path: Path) -> None:
@@ -512,9 +514,11 @@ class TestDockerHubTagFetching:
             raise httpx.HTTPStatusError("Not found", request=mock_req, response=mock_resp)
 
         with patch.object(scraper, "_request", side_effect=mock_request_404):
-            tags = await scraper._fetch_available_tags("library", "nonexistent")
+            tags, status, error = await scraper._fetch_available_tags("library", "nonexistent")
 
         assert tags == []
+        assert status == "not_found"
+        assert "not found" in error.lower()
 
     @pytest.mark.asyncio
     async def test_fetch_available_tags_handles_error(self, tmp_path: Path) -> None:
@@ -522,9 +526,11 @@ class TestDockerHubTagFetching:
         scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
         with patch.object(scraper, "_request", side_effect=Exception("Network error")):
-            tags = await scraper._fetch_available_tags("library", "postgres")
+            tags, status, error = await scraper._fetch_available_tags("library", "postgres")
 
         assert tags == []
+        assert status == "unknown_error"
+        assert "Network error" in error
 
     @pytest.mark.asyncio
     async def test_fetch_available_tags_limit_parameter(self, tmp_path: Path) -> None:
@@ -555,7 +561,7 @@ class TestDockerHubTagFetching:
             "star_count": 10000,
         }
 
-        mock_tags = ["latest", "stable", "alpine", "16-bullseye"]
+        mock_tags = (["latest", "stable", "alpine", "16-bullseye"], None, None)  # (tags, status, error)
         mock_digest = ("sha256:abc123def456", 2)  # (digest, schema_version)
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
@@ -566,6 +572,8 @@ class TestDockerHubTagFetching:
         assert tool.selected_image_digest == "sha256:abc123def456"
         assert tool.digest_fetch_date is not None
         assert tool.is_deprecated_image_format is False  # Schema v2 is modern
+        assert tool.digest_fetch_status == "success"
+        assert tool.docker_tags == ["latest", "stable", "alpine", "16-bullseye"]
 
     @pytest.mark.asyncio
     async def test_parse_tool_no_digest_on_fetch_failure(self, tmp_path: Path) -> None:
@@ -577,13 +585,15 @@ class TestDockerHubTagFetching:
             "description": "PostgreSQL database",
         }
 
-        # Mock _fetch_available_tags to return empty list (simulating failure)
-        with patch.object(scraper, "_fetch_available_tags", return_value=[]):
+        # Mock _fetch_available_tags to return empty list with error status
+        with patch.object(scraper, "_fetch_available_tags", return_value=([], "no_tags", "Repository has no tags")):
             tool = await scraper._parse_tool(repo_data, "library")
 
         assert tool.selected_image_tag is None
         assert tool.selected_image_digest is None
         assert tool.digest_fetch_date is None
+        assert tool.digest_fetch_status == "no_tags"
+        assert tool.digest_fetch_error == "Repository has no tags"
 
     @pytest.mark.asyncio
     async def test_fetch_tags_and_digest_workflow(self, tmp_path: Path) -> None:
@@ -592,7 +602,7 @@ class TestDockerHubTagFetching:
 
         repo_data = {"name": "postgresql"}
 
-        mock_tags = ["latest", "alpine", "16.1.12"]
+        mock_tags = (["latest", "alpine", "16.1.12"], None, None)  # (tags, status, error)
         mock_digest = ("sha256:test123", 2)  # (digest, schema_version)
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
@@ -605,6 +615,8 @@ class TestDockerHubTagFetching:
         assert tool.selected_image_tag == "latest"
         assert tool.selected_image_digest == "sha256:test123"
         assert tool.is_deprecated_image_format is False
+        assert tool.digest_fetch_status == "success"
+        assert tool.docker_tags == ["latest", "alpine", "16.1.12"]
 
     @pytest.mark.asyncio
     async def test_digest_fetch_failure_logs_warning(self, tmp_path: Path) -> None:
@@ -612,7 +624,7 @@ class TestDockerHubTagFetching:
         scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
         repo_data = {"name": "test"}
-        mock_tags = ["latest"]
+        mock_tags = (["latest"], None, None)  # (tags, status, error)
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
             # Simulate digest fetch failure
@@ -623,6 +635,8 @@ class TestDockerHubTagFetching:
         assert tool.selected_image_tag == "latest"
         assert tool.selected_image_digest is None
         assert tool.digest_fetch_date is None
+        assert tool.digest_fetch_status == "unknown_error"
+        assert "Failed to fetch digest after" in tool.digest_fetch_error
 
     @pytest.mark.asyncio
     async def test_deprecated_image_format_detection(self, tmp_path: Path) -> None:
@@ -630,7 +644,7 @@ class TestDockerHubTagFetching:
         scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
         repo_data = {"name": "docker-dev"}
-        mock_tags = ["latest"]
+        mock_tags = (["latest"], None, None)  # (tags, status, error)
         mock_digest_v1 = ("sha256:deprecated123", 1)  # Schema version 1 = deprecated
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
@@ -641,3 +655,4 @@ class TestDockerHubTagFetching:
         assert tool.selected_image_tag == "latest"
         assert tool.selected_image_digest == "sha256:deprecated123"
         assert tool.is_deprecated_image_format is True
+        assert tool.digest_fetch_status == "success"
