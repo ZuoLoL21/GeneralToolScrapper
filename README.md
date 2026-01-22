@@ -244,6 +244,10 @@ gts scan --concurrency 5 --timeout 600 --tag alpine
 - **Error handling**: Keeps `UNKNOWN` status on failure, logs warnings, caches failures (1 hour)
 - **Non-destructive**: Failed scans don't overwrite existing security data
 - **Progress tracking**: Real-time progress bar with vulnerability summary
+- **Concurrency control**: Default concurrency is 1 to avoid Trivy cache lock conflicts
+  - Higher concurrency (2-5) may cause "cache may be in use" errors
+  - Use `--concurrency 1` if you encounter cache lock timeouts
+  - Future versions may support per-process cache isolation
 
 ### Requirements
 

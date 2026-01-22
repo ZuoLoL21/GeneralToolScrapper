@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from src.consts import TRIVY_UNSCANNABLE_IMAGES, TRIVY_CONCURRENCY
 from src.models.model_scanner import ScanBatchResult
 from src.models.model_tool import SecurityStatus, SourceType, Tool
 from src.scanner.image_resolver import ImageResolver
@@ -78,6 +79,11 @@ class ScanOrchestrator:
             if tool.source != SourceType.DOCKER_HUB:
                 continue
 
+            # Skip unscannable images (e.g., scratch)
+            if tool.id in TRIVY_UNSCANNABLE_IMAGES:
+                logger.debug(f"Skipping {tool.id} (unscannable image)")
+                continue
+
             # Skip if in failure cache
             if self.scan_cache.is_failed(tool.id):
                 logger.debug(f"Skipping {tool.id} (cached failure)")
@@ -100,7 +106,7 @@ class ScanOrchestrator:
     async def scan_batch(
         self,
         tools: list[Tool],
-        concurrency: int = 3,
+        concurrency: int = TRIVY_CONCURRENCY,
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> ScanBatchResult:
         """Scan tools with concurrency control.
@@ -246,6 +252,7 @@ class ScanOrchestrator:
 async def main():
     """Example usage of ScanOrchestrator."""
     from pathlib import Path
+
     from src.consts import DEFAULT_DATA_DIR
     from src.models.model_tool import Identity, Maintainer, MaintainerType, Metrics, Security
     from src.storage.cache.file_caching import FileCache
@@ -308,9 +315,9 @@ async def main():
     )
 
     # Display results
-    print(f"\n{'='*60}")
-    print(f"Scan Complete")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("Scan Complete")
+    print(f"{'=' * 60}")
     print(f"Total: {result.total}")
     print(f"Succeeded: {result.succeeded}")
     print(f"Failed: {result.failed}")
@@ -318,7 +325,7 @@ async def main():
     print(f"Duration: {result.duration_seconds:.2f}s")
 
     if result.failures:
-        print(f"\nFailures:")
+        print("\nFailures:")
         for tool_id, error in result.failures.items():
             print(f"  {tool_id}: {error}")
 

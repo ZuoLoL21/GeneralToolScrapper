@@ -86,7 +86,7 @@ class TrivyScanner:
                     image_ref=image_ref,
                     scanned_tag=scanned_tag,
                 )
-            logger.warning(f"Remote scan failed for {image_ref}, falling back to local")
+            # logger.warning(f"Remote scan failed for {image_ref}, falling back to local")
 
         # Fallback to local scan
         logger.debug(f"Attempting local scan for {image_ref}")
@@ -140,7 +140,7 @@ class TrivyScanner:
                     process.communicate(),
                     timeout=self.timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 return ScanResult(
@@ -159,7 +159,7 @@ class TrivyScanner:
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Trivy error (code {process.returncode}): {error_msg[:200]}",
+                    error=f"Trivy error (code {process.returncode}): {error_msg[:1000]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                 )
@@ -183,7 +183,7 @@ class TrivyScanner:
                 success=False,
                 vulnerabilities=None,
                 scan_date=datetime.now(UTC),
-                error=f"Remote scan error: {str(e)[:200]}",
+                error=f"Remote scan error: {str(e)[:1000]}",
                 scan_duration_seconds=0,
                 image_ref=image_ref,
             )
@@ -213,7 +213,7 @@ class TrivyScanner:
                     pull_process.communicate(),
                     timeout=self.timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pull_process.kill()
                 await pull_process.wait()
                 return ScanResult(
@@ -232,7 +232,7 @@ class TrivyScanner:
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Docker pull error: {error_msg[:200]}",
+                    error=f"Docker pull error: {error_msg[:1000]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                 )
@@ -261,7 +261,7 @@ class TrivyScanner:
                     process.communicate(),
                     timeout=self.timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 return ScanResult(
@@ -280,7 +280,7 @@ class TrivyScanner:
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Trivy error (code {process.returncode}): {error_msg[:200]}",
+                    error=f"Trivy error (code {process.returncode}): {error_msg[:1000]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                 )
@@ -304,7 +304,7 @@ class TrivyScanner:
                 success=False,
                 vulnerabilities=None,
                 scan_date=datetime.now(UTC),
-                error=f"Local scan error: {str(e)[:200]}",
+                error=f"Local scan error: {str(e)[:1000]}",
                 scan_duration_seconds=0,
                 image_ref=image_ref,
             )
@@ -352,7 +352,9 @@ async def main():
     # Check if Trivy is installed
     if not scanner.is_trivy_installed():
         print("Error: Trivy is not installed")
-        print("Install from: https://aquasecurity.github.io/trivy/latest/getting-started/installation/")
+        print(
+            "Install from: https://aquasecurity.github.io/trivy/latest/getting-started/installation/"
+        )
         return
 
     print("Trivy is installed\n")
@@ -363,12 +365,12 @@ async def main():
 
     result = await scanner.scan_image(test_image)
 
-    print(f"\nScan result:")
+    print("\nScan result:")
     print(f"  Success: {result.success}")
     print(f"  Duration: {result.scan_duration_seconds:.2f}s")
 
     if result.success and result.vulnerabilities:
-        print(f"  Vulnerabilities:")
+        print("  Vulnerabilities:")
         print(f"    Critical: {result.vulnerabilities.critical}")
         print(f"    High: {result.vulnerabilities.high}")
         print(f"    Medium: {result.vulnerabilities.medium}")

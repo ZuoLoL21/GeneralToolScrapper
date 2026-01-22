@@ -110,5 +110,10 @@ DOCKER_HUB_NAMESPACE_PRESETS = {
 TRIVY_DEFAULT_TIMEOUT = 300  # 5 minutes
 TRIVY_DEFAULT_TAG = "latest"
 TRIVY_STALENESS_DAYS = 7  # Re-scan after 7 days
-TRIVY_CONCURRENCY = 3  # Max concurrent scans
+TRIVY_CONCURRENCY = 1  # Max concurrent scans (set to 1 to avoid cache lock conflicts)
 TRIVY_FAILED_SCAN_TTL = 3600  # 1 hour cache for failed scans
+
+# Images that cannot be scanned (special/reserved images)
+TRIVY_UNSCANNABLE_IMAGES = [
+    "docker_hub:library/scratch",  # Virtual base image, cannot be pulled
+]
