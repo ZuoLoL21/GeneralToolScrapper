@@ -53,6 +53,46 @@ class TrivyScanner:
         """
         return shutil.which(self.trivy_path) is not None
 
+    def _clean_error_message(self, error_msg: str) -> str:
+        """Clean Trivy error message by removing verbose progress output.
+
+        Removes:
+        - Download progress bars (lines with MiB, KiB, %, ETA)
+        - INFO/DEBUG log lines from Trivy
+        - Multiple consecutive newlines
+
+        Keeps:
+        - Actual error messages
+        - Error types (manifest unknown, not found, etc.)
+
+        Args:
+            error_msg: Raw error message from Trivy stderr
+
+        Returns:
+            Cleaned error message
+        """
+        lines = error_msg.split('\n')
+        cleaned_lines = []
+
+        for line in lines:
+            # Skip download progress lines
+            if any(marker in line for marker in ['MiB', 'KiB', ' % ', 'ETA', 'p/s']):
+                continue
+            # Skip INFO/DEBUG log lines (keep WARNING/ERROR)
+            if re.search(r'^\d{4}-\d{2}-\d{2}.*\s+(INFO|DEBUG)\s+', line):
+                continue
+            # Skip downloading artifact lines
+            if 'Downloading' in line or 'Need to update DB' in line:
+                continue
+
+            cleaned_lines.append(line.strip())
+
+        # Join and collapse multiple newlines
+        cleaned = '\n'.join(cleaned_lines)
+        cleaned = re.sub(r'\n{2,}', '\n', cleaned)
+
+        return cleaned.strip()
+
     def _classify_error(self, error_msg: str, returncode: int) -> ScanErrorType:
         """Classify error type based on Trivy stderr output.
 
@@ -342,11 +382,12 @@ class TrivyScanner:
                 error_msg = stderr.decode("utf-8", errors="replace")
                 error_type = self._classify_error(error_msg, process.returncode)
                 logger.debug(f"Remote scan failed ({error_type.value}): {error_msg}")
+                cleaned_msg = self._clean_error_message(error_msg)
                 return ScanResult(
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Trivy error (code {process.returncode}): {error_msg[:1000]}",
+                    error=f"Trivy error (code {process.returncode}): {cleaned_msg[:500]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                     error_type=error_type,
@@ -420,11 +461,12 @@ class TrivyScanner:
                 error_msg = stderr.decode("utf-8", errors="replace")
                 error_type = self._classify_error(error_msg, pull_process.returncode)
                 logger.debug(f"Docker pull failed ({error_type.value}): {error_msg}")
+                cleaned_msg = self._clean_error_message(error_msg)
                 return ScanResult(
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Docker pull error: {error_msg[:1000]}",
+                    error=f"Docker pull error: {cleaned_msg[:500]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                     error_type=ScanErrorType.DOCKER_PULL_FAILED,
@@ -478,11 +520,12 @@ class TrivyScanner:
                 error_msg = stderr.decode("utf-8", errors="replace")
                 error_type = self._classify_error(error_msg, process.returncode)
                 logger.debug(f"Local scan failed ({error_type.value}): {error_msg}")
+                cleaned_msg = self._clean_error_message(error_msg)
                 return ScanResult(
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Trivy error (code {process.returncode}): {error_msg[:1000]}",
+                    error=f"Trivy error (code {process.returncode}): {cleaned_msg[:500]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                     error_type=error_type,

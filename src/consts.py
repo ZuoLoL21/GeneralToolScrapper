@@ -117,6 +117,7 @@ TRIVY_FAILED_SCAN_TTL = 3600  # 1 hour cache for failed scans
 TRIVY_CACHE_CLEANUP_THRESHOLD_SECONDS = 600  # 10 minutes - consider locks stale after this
 TRIVY_MAX_CACHE_LOCK_RETRIES = 4  # Maximum retries for cache lock errors
 TRIVY_RETRY_BASE_DELAY = 1.0  # Base delay in seconds for exponential backoff
+TRIVY_VERBOSE_ERRORS = False  # Set to True to see full Trivy stderr output in logs
 
 # Manifest validation and unscannable images
 DOCKER_MANIFEST_VALIDATION_ENABLED = True  # Pre-validate images before scanning

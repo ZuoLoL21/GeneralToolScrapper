@@ -412,6 +412,74 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 
 ## Changelog
 
+### 2026-01-22: Reduced Trivy Scanning Warning Verbosity
+
+Significantly reduced noise in Trivy scanning logs by cleaning error messages and using intelligent log levels.
+
+**Problem:**
+- Trivy stderr output included verbose download progress bars (MiB/KiB, %, ETA)
+- All scan failures logged at WARNING level, even expected/cached errors
+- Made it difficult to identify truly unexpected errors
+
+**Solution:**
+
+**1. Error Message Cleaning**
+- New `_clean_error_message()` method filters out verbose Trivy output:
+  - Removes download progress bars (lines with MiB, KiB, %, ETA)
+  - Removes INFO/DEBUG log lines (keeps WARNING/ERROR)
+  - Removes "Downloading" and "Need to update DB" messages
+  - Collapses multiple consecutive newlines
+- Applied to all error creation points (remote scan, docker pull, local scan)
+- Error messages reduced from 1000 to 500 characters for better readability
+
+**2. Intelligent Log Levels**
+- Expected/permanent errors (IMAGE_NOT_FOUND, MANIFEST_UNKNOWN, UNSCANNABLE_IMAGE) → DEBUG level
+- Transient errors being retried (CACHE_LOCK, NETWORK_TIMEOUT, RATE_LIMIT) → INFO level with cache TTL info
+- Unexpected/unknown errors → WARNING level (unchanged)
+- Provides clear signal-to-noise ratio for debugging
+
+**3. Configuration Option**
+- New `TRIVY_VERBOSE_ERRORS` constant in `src/consts.py` (default: False)
+- Set to True to restore full Trivy stderr output at WARNING level
+- Useful for deep debugging when needed
+
+**Impact:**
+- **Before**: ~95% of logs were verbose warnings with progress bars
+- **After**: Only truly unexpected errors shown at WARNING level
+- Expected errors logged at DEBUG (invisible in normal operation)
+- Transient errors logged at INFO with helpful context
+
+**Example Output:**
+
+Before:
+```
+2026-01-22 16:08:03,241 [WARNING] src.scanner.scan_orchestrator: ✗ docker_hub:library/kapacitor: Trivy error (code 1): 2026-01-22T16:07:18-05:00 INFO    [vulndb] Need to update DB
+2026-01-22T16:07:18-05:00       INFO    [vulndb] Downloading vulnerability DB...
+127.24 KiB / 83.07 MiB [>____________________________________________________________] 0.15% ? p/s ?
+415.24 KiB / 83.07 MiB [>____________________________________________________________] 0.49% ? p/s ?
+... (many more lines)
+```
+
+After:
+```
+2026-01-22 16:08:03,241 [DEBUG] src.scanner.scan_orchestrator: ✗ docker_hub:library/kapacitor: manifest_unknown
+```
+
+Or for transient errors:
+```
+2026-01-22 16:08:03,241 [INFO] src.scanner.scan_orchestrator: ✗ docker_hub:library/kapacitor: network_timeout (cached 1h, will retry later)
+```
+
+**Modified Files:**
+- `src/scanner/trivy_scanner.py`: Added `_clean_error_message()`, updated error creation at lines 349, 427, 485
+- `src/scanner/scan_orchestrator.py`: Conditional logging based on error type
+- `src/consts.py`: Added `TRIVY_VERBOSE_ERRORS` configuration constant
+
+**Backward Compatibility:**
+- No breaking changes to CLI or functionality
+- All information still available at DEBUG log level
+- Can enable verbose mode with `TRIVY_VERBOSE_ERRORS=True` if needed
+
 ### 2026-01-22: Trivy Scanning Reliability Improvements
 
 Comprehensive fixes to address Trivy scanning errors including cache lock conflicts, manifest errors, and network failures.

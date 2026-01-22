@@ -8,7 +8,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from src.consts import DEFAULT_DATA_DIR, TRIVY_CONCURRENCY, TRIVY_UNSCANNABLE_IMAGES
+from src.consts import (
+    DEFAULT_DATA_DIR,
+    TRIVY_CONCURRENCY,
+    TRIVY_UNSCANNABLE_IMAGES,
+    TRIVY_VERBOSE_ERRORS,
+)
 from src.models.model_scanner import ScanBatchResult, ScanErrorType
 from src.models.model_tool import SecurityStatus, SourceType, Tool
 from src.scanner.image_resolver import ImageResolver
@@ -259,7 +264,36 @@ class ScanOrchestrator:
                             tool.id, result.error or "Unknown error", ttl=cache_ttl
                         )
                         failures[tool.id] = result.error or "Unknown error"
-                        logger.warning(f"✗ {tool.id}: {result.error} (type: {result.error_type.value})")
+
+                        # Log with appropriate level based on error type
+                        if TRIVY_VERBOSE_ERRORS:
+                            # Verbose mode: always log at WARNING level
+                            logger.warning(f"✗ {tool.id}: {result.error} (type: {result.error_type.value})")
+                        elif result.error_type in [
+                            ScanErrorType.IMAGE_NOT_FOUND,
+                            ScanErrorType.MANIFEST_UNKNOWN,
+                            ScanErrorType.UNSCANNABLE_IMAGE,
+                        ]:
+                            # Expected/permanent errors - log at DEBUG level
+                            logger.debug(
+                                f"✗ {tool.id}: {result.error_type.value}"
+                            )
+                        elif result.error_type in [
+                            ScanErrorType.CACHE_LOCK,
+                            ScanErrorType.NETWORK_TIMEOUT,
+                            ScanErrorType.RATE_LIMIT,
+                        ]:
+                            # Transient errors being retried - log at INFO level
+                            logger.info(
+                                f"✗ {tool.id}: {result.error_type.value} "
+                                f"(cached {cache_ttl//3600}h, will retry later)"
+                            )
+                        else:
+                            # Unexpected errors - keep as WARNING
+                            logger.warning(
+                                f"✗ {tool.id}: {result.error} (type: {result.error_type.value})"
+                            )
+
                         failed += 1
                         completed += 1
                         if progress_callback:
