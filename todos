@@ -1,3 +1,7 @@
 Lots and lots of "selected_image_digest": null
 - Possible causes:
     not assigned properly
+
+
+Lots of areas where tags are none:
+- make them more explicit
