@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  falkordb:
+    build:
+      context: FalkorDB
+      dockerfile: Dockerfile
+    container_name: falkordb-templates
+    ports:
+      - "6379:6379"
+      - "3000:3000"
+    volumes:
+      - falkordb_data:/data
+    environment:
+      - FALKORDB_GRAPH=templates
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  falkordb_data:
