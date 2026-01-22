@@ -427,6 +427,7 @@ def scan(
         scanner=scanner,
         resolver=resolver,
         scan_cache=scan_cache,
+        file_manager=file_manager,
         staleness_days=TRIVY_STALENESS_DAYS,
     )
 
@@ -451,7 +452,11 @@ def scan(
         table.add_column("Last Scan", style="dim")
 
         for tool in tools_to_scan:
-            image_ref = resolver.resolve_image_ref(tool) or "N/A"
+            result_tuple = resolver.resolve_image_ref(tool)
+            if result_tuple:
+                image_ref, selected_tag = result_tuple
+            else:
+                image_ref = "N/A"
             last_scan = (
                 tool.security.trivy_scan_date.strftime("%Y-%m-%d")
                 if tool.security.trivy_scan_date

@@ -11,6 +11,7 @@ from src.models.model_tool import SecurityStatus, SourceType, Tool
 from src.scanner.image_resolver import ImageResolver
 from src.scanner.scan_cache import ScanCache
 from src.scanner.trivy_scanner import TrivyScanner
+from src.storage.permanent_storage.file_manager import FileManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class ScanOrchestrator:
         scanner: TrivyScanner,
         resolver: ImageResolver,
         scan_cache: ScanCache,
+        file_manager: FileManager,
         staleness_days: int = 7,
     ):
         """Initialize ScanOrchestrator.
@@ -31,11 +33,13 @@ class ScanOrchestrator:
             scanner: TrivyScanner instance
             resolver: ImageResolver instance
             scan_cache: ScanCache instance
+            file_manager: FileManager instance for incremental saving
             staleness_days: Days after which to re-scan (default: 7)
         """
         self.scanner = scanner
         self.resolver = resolver
         self.scan_cache = scan_cache
+        self.file_manager = file_manager
         self.staleness_days = staleness_days
 
     def filter_tools_needing_scan(
@@ -136,8 +140,8 @@ class ScanOrchestrator:
                     return None
 
                 # Resolve image reference
-                image_ref = self.resolver.resolve_image_ref(tool)
-                if not image_ref:
+                result_tuple = self.resolver.resolve_image_ref(tool)
+                if not result_tuple:
                     logger.warning(f"Could not resolve image for {tool.id}")
                     failures[tool.id] = "Could not resolve image reference"
                     failed += 1
@@ -146,8 +150,10 @@ class ScanOrchestrator:
                         progress_callback(completed, len(tools))
                     return None
 
+                image_ref, selected_tag = result_tuple
+
                 # Scan
-                logger.info(f"Scanning {tool.id} ({image_ref})...")
+                logger.info(f"Scanning {tool.id} ({image_ref}, tag={selected_tag})...")
                 result = await self.scanner.scan_image(image_ref)
 
                 # Update or cache failure
@@ -158,6 +164,15 @@ class ScanOrchestrator:
                         f"{result.vulnerabilities.high}H {result.vulnerabilities.medium}M "
                         f"{result.vulnerabilities.low}L"
                     )
+
+                    # Save immediately (incremental save)
+                    try:
+                        self.file_manager.save_processed([updated_tool], merge=True)
+                        logger.debug(f"Saved scan result for {tool.id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to save {tool.id}: {e}")
+                        # Don't fail the scan if save fails
+
                     succeeded += 1
                     completed += 1
                     if progress_callback:
@@ -198,6 +213,7 @@ class ScanOrchestrator:
         - Set vulnerabilities counts
         - Set status (OK if no critical/high, VULNERABLE otherwise)
         - Set trivy_scan_date to now
+        - Set scanned_tag to the tag that was scanned
 
         On failure:
         - Keep existing status (don't overwrite)
@@ -215,6 +231,7 @@ class ScanOrchestrator:
         new_security = tool.security.model_copy()
         new_security.vulnerabilities = scan_result.vulnerabilities
         new_security.trivy_scan_date = scan_result.scan_date
+        new_security.scanned_tag = scan_result.scanned_tag
 
         # Determine status based on vulnerabilities
         if scan_result.vulnerabilities.critical > 0 or scan_result.vulnerabilities.high > 0:
@@ -239,7 +256,8 @@ async def main():
     scan_cache = ScanCache(file_cache, failed_scan_ttl=3600)
     resolver = ImageResolver()
     scanner = TrivyScanner()
-    orchestrator = ScanOrchestrator(scanner, resolver, scan_cache, staleness_days=7)
+    file_manager = FileManager()
+    orchestrator = ScanOrchestrator(scanner, resolver, scan_cache, file_manager, staleness_days=7)
 
     # Check Trivy
     if not scanner.is_trivy_installed():

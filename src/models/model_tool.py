@@ -82,6 +82,10 @@ class Security(BaseModel):
         default=SecurityStatus.UNKNOWN, description="Overall security status"
     )
     trivy_scan_date: datetime | None = Field(default=None, description="Date of last Trivy scan")
+    scanned_tag: str | None = Field(
+        default=None,
+        description="Docker image tag that was scanned (e.g., 'latest', 'alpine', '1.0.5')"
+    )
     vulnerabilities: Vulnerabilities = Field(
         default_factory=Vulnerabilities, description="Vulnerability counts by severity"
     )
@@ -206,6 +210,10 @@ class Tool(BaseModel):
 
     # Categorization
     tags: list[str] = Field(default_factory=list, description="Raw tags from source")
+    docker_tags: list[str] = Field(
+        default_factory=list,
+        description="Available Docker image tags (versions) from Docker Hub"
+    )
     taxonomy_version: str = Field(default="1.0", description="Categorization version for re-runs")
     primary_category: str | None = Field(
         default=None, description="Primary category (databases, monitoring, etc.)"

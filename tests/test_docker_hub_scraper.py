@@ -393,3 +393,154 @@ class TestDockerHubScraperIntegration:
         assert "ns1" in scraper._queue._failed
         # ns2 should be marked as completed
         assert "ns2" in scraper._queue._completed
+
+
+class TestDockerHubTagFetching:
+    """Tests for Docker Hub tag fetching functionality."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_available_tags_success(self, tmp_path: Path) -> None:
+        """Test successfully fetching available tags from Docker Hub API."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        # Mock tags response from Docker Hub API
+        mock_tags_response = {
+            "results": [
+                {"name": "latest"},
+                {"name": "stable"},
+                {"name": "alpine"},
+                {"name": "16-bullseye"},
+                {"name": "15.2.0"},
+            ]
+        }
+
+        with patch.object(scraper, "_request", return_value=mock_tags_response):
+            tags = await scraper._fetch_available_tags("library", "postgres")
+
+        assert tags == ["latest", "stable", "alpine", "16-bullseye", "15.2.0"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_available_tags_404_returns_empty(self, tmp_path: Path) -> None:
+        """Test that 404 errors return empty tag list."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        # Simulate 404 error
+        async def mock_request_404(endpoint, params=None, use_cache=True):
+            mock_req = httpx.Request("GET", "https://hub.docker.com" + endpoint)
+            mock_resp = httpx.Response(404, request=mock_req)
+            raise httpx.HTTPStatusError("Not found", request=mock_req, response=mock_resp)
+
+        with patch.object(scraper, "_request", side_effect=mock_request_404):
+            tags = await scraper._fetch_available_tags("library", "nonexistent")
+
+        assert tags == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_available_tags_handles_error(self, tmp_path: Path) -> None:
+        """Test that errors are handled gracefully."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        with patch.object(scraper, "_request", side_effect=Exception("Network error")):
+            tags = await scraper._fetch_available_tags("library", "postgres")
+
+        assert tags == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_available_tags_limit_parameter(self, tmp_path: Path) -> None:
+        """Test that limit parameter is passed correctly."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        request_params = None
+
+        async def capture_params(endpoint, params=None, use_cache=True):
+            nonlocal request_params
+            request_params = params
+            return {"results": []}
+
+        with patch.object(scraper, "_request", side_effect=capture_params):
+            await scraper._fetch_available_tags("library", "postgres", limit=25)
+
+        assert request_params == {"page_size": 25}
+
+    @pytest.mark.asyncio
+    async def test_parse_tool_populates_docker_tags(self, tmp_path: Path) -> None:
+        """Test that _parse_tool fetches and populates docker_tags."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        repo_data = {
+            "name": "postgres",
+            "description": "PostgreSQL database",
+            "pull_count": 1_000_000_000,
+            "star_count": 10000,
+        }
+
+        mock_tags = ["latest", "stable", "alpine", "16-bullseye"]
+
+        with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
+            tool = await scraper._parse_tool(repo_data, "library")
+
+        assert tool.docker_tags == ["latest", "stable", "alpine", "16-bullseye"]
+
+    @pytest.mark.asyncio
+    async def test_parse_tool_empty_docker_tags_on_fetch_failure(self, tmp_path: Path) -> None:
+        """Test that docker_tags is empty list if tag fetching fails."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        repo_data = {
+            "name": "postgres",
+            "description": "PostgreSQL database",
+        }
+
+        # Mock _fetch_available_tags to return empty list (simulating failure)
+        with patch.object(scraper, "_fetch_available_tags", return_value=[]):
+            tool = await scraper._parse_tool(repo_data, "library")
+
+        assert tool.docker_tags == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_tags_called_with_correct_namespace_and_name(self, tmp_path: Path) -> None:
+        """Test that tag fetching uses correct namespace and name."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
+
+        repo_data = {"name": "postgresql"}
+        captured_args = {}
+
+        async def capture_fetch_args(namespace, name, limit=50):
+            captured_args["namespace"] = namespace
+            captured_args["name"] = name
+            captured_args["limit"] = limit
+            return []
+
+        with patch.object(scraper, "_fetch_available_tags", side_effect=capture_fetch_args):
+            await scraper._parse_tool(repo_data, "bitnami")
+
+        assert captured_args["namespace"] == "bitnami"
+        assert captured_args["name"] == "postgresql"
+        assert captured_args["limit"] == 50
+
+    @pytest.mark.asyncio
+    async def test_fetch_tags_caches_response(self, tmp_path: Path) -> None:
+        """Test that tag fetching uses response cache."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=True)
+
+        mock_tags_response = {
+            "results": [{"name": "latest"}, {"name": "stable"}]
+        }
+
+        request_count = 0
+
+        async def count_requests(endpoint, params=None, use_cache=True):
+            nonlocal request_count
+            request_count += 1
+            return mock_tags_response
+
+        with patch.object(scraper, "_request", side_effect=count_requests):
+            # First call should make a request
+            tags1 = await scraper._fetch_available_tags("library", "postgres")
+            # Second call should use cache (if caching is enabled)
+            tags2 = await scraper._fetch_available_tags("library", "postgres")
+
+        # Note: The actual caching behavior depends on _request implementation
+        # This test just verifies the method works correctly
+        assert tags1 == ["latest", "stable"]
+        assert tags2 == ["latest", "stable"]

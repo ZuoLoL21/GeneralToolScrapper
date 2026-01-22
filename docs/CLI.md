@@ -535,11 +535,32 @@ gts scan [OPTIONS]
 Options:
   -l, --limit INTEGER         Limit tools to scan
   --force                     Re-scan all (ignore staleness)
-  --tag TEXT                  Docker image tag to scan [default: latest]
+  --tag TEXT                  Docker image tag fallback (default: latest)
+                               Note: Scanner uses smart tag selection from pre-fetched tags
   --concurrency INTEGER       Max concurrent scans [default: 3]
   --timeout INTEGER           Scan timeout (seconds) [default: 300]
   --dry-run                   Preview without scanning
 ```
+
+**New in v2.0: Smart Tag Selection & Incremental Saving**
+
+The scanner now features intelligent tag selection and crash-resilient incremental saving:
+
+1. **Smart Tag Selection**: Automatically selects the best available Docker tag
+   - Tags are pre-fetched during scraping (no API calls during scanning)
+   - Priority: `stable` → `latest` → `alpine` → first available
+   - Falls back to `--tag` value if no tags available
+   - Handles images without `latest` tag
+
+2. **Scanned Tag Tracking**: Records which tag was scanned
+   - Stored in `security.scanned_tag` field
+   - Enables reproducibility and version-specific vulnerability tracking
+   - Visible in scan results and tool details
+
+3. **Incremental Saving**: Results saved after each scan
+   - If process crashes, completed scans are preserved
+   - Can safely interrupt and resume scanning
+   - Progress is never lost
 
 **Examples:**
 
@@ -626,14 +647,17 @@ Failed scans (2):
 $ gts scan --dry-run
 
            Tools to Scan (Dry Run) - 23 tools
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Tool ID                        ┃ Image Ref       ┃ Current Status┃ Last Scan  ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ docker_hub:library/postgres    │ postgres:latest │ unknown       │ Never      │
-│ docker_hub:library/nginx       │ nginx:latest    │ ok            │ 2026-01-14 │
-│ docker_hub:bitnami/postgresql  │ bitnami/post... │ unknown       │ Never      │
-│ ...                            │ ...             │ ...           │ ...        │
-└────────────────────────────────┴─────────────────┴───────────────┴────────────┘
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Tool ID                        ┃ Image Ref         ┃ Current Status┃ Last Scan  ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ docker_hub:library/postgres    │ postgres:stable   │ unknown       │ Never      │
+│ docker_hub:library/nginx       │ nginx:alpine      │ ok            │ 2026-01-14 │
+│ docker_hub:bitnami/postgresql  │ bitnami/post...   │ unknown       │ Never      │
+│ docker_hub:library/redis       │ redis:alpine      │ unknown       │ Never      │
+│ ...                            │ ...               │ ...           │ ...        │
+└────────────────────────────────┴───────────────────┴───────────────┴────────────┘
+
+Note: Smart tag selection active (stable → latest → alpine → first)
 
 Run without --dry-run to perform actual scanning
 ```
@@ -653,7 +677,26 @@ Run without --dry-run to perform actual scanning
 For each successful scan, updates:
 - `security.vulnerabilities`: Counts by severity (critical, high, medium, low)
 - `security.trivy_scan_date`: Timestamp of scan
+- `security.scanned_tag`: Docker tag that was scanned (e.g., 'stable', 'alpine', '1.0.5')
 - `security.status`: Set to `ok` (no critical/high) or `vulnerable` (has critical/high)
+
+**Example Updated Security Data:**
+
+```json
+{
+  "security": {
+    "status": "ok",
+    "trivy_scan_date": "2026-01-21T10:30:00Z",
+    "scanned_tag": "stable",
+    "vulnerabilities": {
+      "critical": 0,
+      "high": 1,
+      "medium": 3,
+      "low": 5
+    }
+  }
+}
+```
 
 **Integration with Quality Scoring:**
 
@@ -678,6 +721,16 @@ gts scan --force
 # Quick spot check of top tools
 gts top --limit 20
 gts scan --limit 20
+
+# Crash recovery: Resume interrupted scan
+gts scan --limit 100
+# Press Ctrl+C after ~50 scans complete
+# Check progress: cat data/processed/tools.json
+gts scan --limit 100
+# Automatically skips first 50, continues with remaining 50
+
+# View which tags were scanned
+cat data/processed/tools.json | jq '.tools[] | {id, scanned_tag: .security.scanned_tag}'
 ```
 
 **Performance Expectations:**

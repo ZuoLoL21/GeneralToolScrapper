@@ -244,7 +244,51 @@ class DockerHubScraper(BaseScraper):
                 return None
             raise
 
-    def _parse_tool(self, repo: dict[str, Any], namespace: str) -> Tool:
+    async def _fetch_available_tags(
+        self,
+        namespace: str,
+        name: str,
+        limit: int = 50,
+    ) -> list[str]:
+        """Fetch available Docker image tags for a repository.
+
+        Called DURING SCRAPING to get available tags upfront.
+
+        Args:
+            namespace: Repository namespace.
+            name: Repository name.
+            limit: Max tags to fetch (default: 50).
+
+        Returns:
+            List of tag names (e.g., ["latest", "alpine", "1.0.5", "16-bullseye"]).
+        """
+        try:
+            endpoint = f"/repositories/{namespace}/{name}/tags"
+            data = await self._request(endpoint, params={"page_size": limit})
+
+            if not data:
+                return []
+
+            # Extract tag names from results
+            tags = []
+            for tag_obj in data.get("results", []):
+                if isinstance(tag_obj, dict) and "name" in tag_obj:
+                    tags.append(tag_obj["name"])
+
+            logger.debug(f"Fetched {len(tags)} tags for {namespace}/{name}")
+            return tags
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.debug(f"No tags found for {namespace}/{name}")
+                return []
+            logger.warning(f"Failed to fetch tags for {namespace}/{name}: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"Error fetching tags for {namespace}/{name}: {e}")
+            return []
+
+    async def _parse_tool(self, repo: dict[str, Any], namespace: str) -> Tool:
         """Parse Docker Hub repository data into Tool model.
 
         Args:
@@ -286,6 +330,9 @@ class DockerHubScraper(BaseScraper):
             elif days_since_update > 180:
                 lifecycle = Lifecycle.STABLE
 
+        # Fetch available Docker image tags during scraping
+        docker_tags = await self._fetch_available_tags(namespace, name)
+
         return Tool(
             id=f"docker_hub:{namespace}/{name}",
             name=full_name,
@@ -312,6 +359,7 @@ class DockerHubScraper(BaseScraper):
             ),
             lifecycle=lifecycle,
             tags=_extract_tags(repo),
+            docker_tags=docker_tags,
         )
 
     async def scrape(self) -> AsyncIterator[Tool]:
@@ -353,7 +401,7 @@ class DockerHubScraper(BaseScraper):
 
                 try:
                     async for repo in self._fetch_repositories(namespace):
-                        tool = self._parse_tool(repo, namespace)
+                        tool = await self._parse_tool(repo, namespace)
                         yield tool
 
                     self._queue.mark_completed(namespace)
@@ -403,7 +451,7 @@ class DockerHubScraper(BaseScraper):
             if repo is None:
                 return None
 
-            return self._parse_tool(repo, namespace)
+            return await self._parse_tool(repo, namespace)
 
         finally:
             if self._client:

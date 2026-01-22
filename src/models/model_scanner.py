@@ -16,6 +16,7 @@ class ScanResult:
     error: str | None
     scan_duration_seconds: float
     image_ref: str
+    scanned_tag: str | None = None
 
 
 @dataclass

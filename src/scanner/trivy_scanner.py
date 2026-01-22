@@ -63,6 +63,11 @@ class TrivyScanner:
         start_time = time.time()
         use_remote = try_remote_first if try_remote_first is not None else self.try_remote_first
 
+        # Extract tag from image_ref (e.g., "postgres:stable" → "stable")
+        scanned_tag = None
+        if ":" in image_ref:
+            scanned_tag = image_ref.split(":")[-1]
+
         logger.info(f"Scanning image: {image_ref}")
 
         # Try remote scan first if enabled
@@ -70,14 +75,24 @@ class TrivyScanner:
             logger.debug(f"Attempting remote scan for {image_ref}")
             result = await self._scan_remote(image_ref)
             if result.success:
-                return result
+                # Update duration and add scanned_tag
+                duration = time.time() - start_time
+                return ScanResult(
+                    success=result.success,
+                    vulnerabilities=result.vulnerabilities,
+                    scan_date=result.scan_date,
+                    error=result.error,
+                    scan_duration_seconds=duration,
+                    image_ref=image_ref,
+                    scanned_tag=scanned_tag,
+                )
             logger.warning(f"Remote scan failed for {image_ref}, falling back to local")
 
         # Fallback to local scan
         logger.debug(f"Attempting local scan for {image_ref}")
         result = await self._scan_local(image_ref)
 
-        # Update duration
+        # Update duration and add scanned_tag
         duration = time.time() - start_time
         return ScanResult(
             success=result.success,
@@ -86,6 +101,7 @@ class TrivyScanner:
             error=result.error,
             scan_duration_seconds=duration,
             image_ref=image_ref,
+            scanned_tag=scanned_tag,
         )
 
     async def _scan_remote(self, image_ref: str) -> ScanResult:

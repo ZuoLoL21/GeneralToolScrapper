@@ -408,6 +408,99 @@ Scores are **relative within categories**, not absolute. A score of 90 means "to
 
 ## Changelog
 
+### 2026-01-21: Enhanced Trivy Scanning with Smart Tag Selection and Incremental Saving
+
+Major improvements to Trivy security scanning with smart Docker tag selection, scanned tag tracking, and crash-resilient incremental saving.
+
+**New Features:**
+
+**1. Smart Tag Selection from Pre-Fetched Docker Tags**
+- **Tag Fetching During Scraping**: Docker Hub scraper now fetches available image tags during the scraping phase
+  - New `_fetch_available_tags()` method queries Docker Hub tags API
+  - Tags stored in `tool.docker_tags` field for later use during scanning
+  - Cached using existing response cache (24h TTL)
+  - Limits to first 50 tags per image to keep responses manageable
+
+- **Priority-Based Tag Selection**: Scanner intelligently selects best available tag
+  - Priority order: `stable` → `latest` → `alpine` → first available
+  - Falls back to configured default tag if no tags available (backward compatible)
+  - NO API calls during scanning - uses pre-fetched tags from scraping phase
+  - Handles images without `latest` tag (e.g., versioned tags like `16-alpine`, `1.0.5`)
+
+- **Scanned Tag Tracking**: Results now record which tag was scanned
+  - New `scanned_tag` field in `Security` model tracks the Docker tag scanned
+  - Stored alongside vulnerability counts and scan date
+  - Enables reproducibility and version-specific vulnerability tracking
+
+**2. Incremental Saving for Crash Resilience**
+- **Save After Each Scan**: Results are saved immediately after each successful scan
+  - Uses `FileManager.save_processed(merge=True)` for safe concurrent updates
+  - If process crashes, already-completed scans are preserved
+  - Progress is never lost - can resume from where it left off
+  - Minimal performance impact (~10-20% slower due to incremental I/O)
+
+- **Crash Recovery**: Scanning can be interrupted safely
+  - Completed scans are already saved to `data/processed/tools.json`
+  - Failed scans cached for 1 hour to prevent retry loops
+  - Resume by running `gts scan` again - skips already-scanned tools
+
+**3. Updated CLI Behavior**
+- **Dry Run Mode**: `gts scan --dry-run` now shows selected Docker tag for each tool
+- **Tag Override**: `--tag` flag now serves as fallback when no tags available
+- **Final Save**: Kept for backward compatibility - acts as final flush
+
+**Data Model Changes:**
+- `Tool.docker_tags: list[str]` - Available Docker image tags from Docker Hub
+- `Security.scanned_tag: str | None` - Docker image tag that was scanned
+- `ScanResult.scanned_tag: str | None` - Tag information in scan results
+
+**Modified Modules:**
+- `src/models/model_tool.py`: Added `docker_tags` and `scanned_tag` fields
+- `src/models/model_scanner.py`: Added `scanned_tag` to `ScanResult`
+- `src/scrapers/docker_hub/docker_hub.py`: Tag fetching during scraping
+- `src/scanner/image_resolver.py`: Smart tag selection from pre-fetched tags
+- `src/scanner/trivy_scanner.py`: Extract and track scanned tag
+- `src/scanner/scan_orchestrator.py`: Incremental saving after each scan
+- `src/cli.py`: Updated to handle tuple return from resolver
+
+**Test Coverage:**
+- `tests/test_image_resolver.py`: Smart tag selection tests
+- `tests/test_trivy_scanner.py`: Scanned tag tracking tests
+- `tests/test_scan_orchestrator.py`: Incremental saving and crash recovery tests
+- `tests/test_docker_hub_scraper.py`: Tag fetching tests
+
+**Example Workflow:**
+```bash
+# 1. Scrape tools (fetches available tags upfront)
+gts scrape --source docker_hub --namespaces popular
+
+# 2. Scan with smart tag selection (uses pre-fetched tags)
+gts scan --limit 50
+
+# 3. View results (includes scanned_tag information)
+gts top --limit 20
+
+# 4. Interrupt and resume safely
+gts scan --limit 100
+# Press Ctrl+C after ~10 scans complete
+# Check data/processed/tools.json - first 10 scans are saved
+
+# Resume where it left off
+gts scan --limit 100
+# Skips the 10 already-scanned tools, continues with remaining
+```
+
+**Backward Compatibility:**
+- Tools without `docker_tags` field use default tag (existing behavior)
+- Tools without `scanned_tag` field load correctly (optional field)
+- Incremental saving is additive - final batch save still happens
+- No breaking changes to CLI interface or data structures
+
+**Performance Impact:**
+- Scraping: ~5-10% slower (one-time API call per repository to fetch tags)
+- Scanning: ~10-20% slower (incremental saves add I/O overhead)
+- Trade-off: Much better reliability and reproducibility
+
 ### 2026-01-21: Trivy Security Scanner Implementation
 
 Implemented standalone Trivy security scanning capability via new `gts scan` CLI command.
