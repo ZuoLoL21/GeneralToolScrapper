@@ -289,30 +289,45 @@ class DockerHubScraper(BaseScraper):
             return []
 
     def _select_tag_for_digest(self, available_tags: list[str]) -> str | None:
-        """Select best tag for digest retrieval.
+        """Select best tag for digest retrieval with enhanced priority.
 
-        Priority:
-        1. 'latest' - most recent stable version
-        2. 'alpine' - lightweight variant
-        3. 'debian' - debian-based variant
-        4. Major versions - highest semantic version (e.g., '16.1.12' > '16.0.4')
-        5. First available - fallback
+        Priority (based on production stability and availability):
+        1. 'stable' - explicitly marked stable version
+        2. 'latest' - most recent stable version (most common)
+        3. 'lts' - long-term support version
+        4. 'alpine' - lightweight variant (very common)
+        5. Semantic versions - highest stable version (e.g., '16.1.12' > '16.0.4')
+        6. First available - fallback
+
+        Args:
+            available_tags: List of available tag names
+
+        Returns:
+            Selected tag name or None if no tags available
         """
         if not available_tags:
             return None
 
-        # Priority 1-3: Named tags
-        for preferred in ['latest', 'alpine', 'debian']:
+        # Priority 1-4: Named stability tags
+        for preferred in ["stable", "latest", "lts", "alpine"]:
             if preferred in available_tags:
+                logger.debug(f"Selected tag '{preferred}' from {len(available_tags)} available tags")
                 return preferred
 
-        # Priority 4: Semantic versions (16.1.12, 3.11.5, 20.4, etc.)
+        # Priority 5: Semantic versions (16.1.12, 3.11.5, 20.4, etc.)
         semantic_versions = self._extract_semantic_versions(available_tags)
         if semantic_versions:
-            return semantic_versions[0]  # Already sorted by version descending
+            selected = semantic_versions[0]  # Already sorted by version descending
+            logger.debug(
+                f"Selected semantic version '{selected}' from {len(semantic_versions)} "
+                f"version tags out of {len(available_tags)} total"
+            )
+            return selected
 
-        # Priority 5: First available
-        return available_tags[0]
+        # Priority 6: First available tag as fallback
+        selected = available_tags[0]
+        logger.debug(f"Selected first available tag '{selected}' from {len(available_tags)} tags")
+        return selected
 
     def _extract_semantic_versions(self, tags: list[str]) -> list[str]:
         """Extract and sort semantic version tags.
@@ -376,40 +391,100 @@ class DockerHubScraper(BaseScraper):
             logger.warning(f"Failed to get registry token for {namespace}/{name}: {e}")
             return None
 
-    async def _fetch_tag_digest(self, namespace: str, name: str, tag: str) -> str | None:
-        """Fetch digest for a specific Docker image tag.
+    async def _fetch_tag_digest(
+        self, namespace: str, name: str, tag: str, max_retries: int = 3
+    ) -> str | None:
+        """Fetch digest for a specific Docker image tag with retry logic.
 
-        Returns digest string like 'sha256:abc123...' or None on failure.
+        Retries on network errors with exponential backoff.
+        Does not retry on permanent errors (404, 401).
+
+        Args:
+            namespace: Docker Hub namespace
+            name: Repository name
+            tag: Tag to fetch digest for
+            max_retries: Maximum retry attempts (default: 3)
+
+        Returns:
+            Digest string like 'sha256:abc123...' or None on failure.
         """
-        try:
-            # Get authentication token
-            token = await self._get_registry_token(namespace, name)
-            if not token:
-                return None
+        retry_count = 0
+        base_delay = 1.0
 
-            # Request manifest to get digest
-            url = f"https://registry-1.docker.io/v2/{namespace}/{name}/manifests/{tag}"
-            headers = {
-                "Accept": "application/vnd.docker.distribution.manifest.v2+json",
-                "Authorization": f"Bearer {token}"
-            }
-
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, timeout=10.0)
-                response.raise_for_status()
-
-                # Extract digest from response header
-                digest = response.headers.get("Docker-Content-Digest")
-                if digest:
-                    logger.debug(f"Fetched digest for {namespace}/{name}:{tag} → {digest[:19]}...")
-                    return digest
-                else:
-                    logger.warning(f"No digest header for {namespace}/{name}:{tag}")
+        while retry_count <= max_retries:
+            try:
+                # Get authentication token
+                token = await self._get_registry_token(namespace, name)
+                if not token:
+                    logger.warning(f"No auth token for {namespace}/{name}:{tag}")
                     return None
 
-        except Exception as e:
-            logger.warning(f"Failed to fetch digest for {namespace}/{name}:{tag}: {e}")
-            return None
+                # Request manifest to get digest
+                url = f"https://registry-1.docker.io/v2/{namespace}/{name}/manifests/{tag}"
+                headers = {
+                    "Accept": "application/vnd.docker.distribution.manifest.v2+json",
+                    "Authorization": f"Bearer {token}",
+                }
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, headers=headers, timeout=10.0)
+
+                    # Handle HTTP errors
+                    if response.status_code in (401, 403, 404):
+                        # Permanent errors - don't retry
+                        logger.debug(
+                            f"Digest fetch failed ({response.status_code}) for {namespace}/{name}:{tag}"
+                        )
+                        return None
+
+                    response.raise_for_status()
+
+                    # Extract digest from response header
+                    digest = response.headers.get("Docker-Content-Digest")
+                    if digest:
+                        logger.debug(f"Fetched digest for {namespace}/{name}:{tag} → {digest[:19]}...")
+                        return digest
+                    else:
+                        logger.warning(f"No digest header for {namespace}/{name}:{tag}")
+                        return None
+
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as e:
+                # Transient network errors - retry with backoff
+                if retry_count < max_retries:
+                    delay = base_delay * (2**retry_count)
+                    logger.debug(
+                        f"Network error fetching digest for {namespace}/{name}:{tag}, "
+                        f"retry {retry_count + 1}/{max_retries} after {delay:.1f}s: {e}"
+                    )
+                    await asyncio.sleep(delay)
+                    retry_count += 1
+                else:
+                    logger.warning(
+                        f"Failed to fetch digest for {namespace}/{name}:{tag} "
+                        f"after {max_retries} retries: {e}"
+                    )
+                    return None
+
+            except httpx.HTTPStatusError as e:
+                # HTTP errors other than 401/403/404 - retry with backoff
+                if e.response.status_code in (500, 502, 503, 504) and retry_count < max_retries:
+                    delay = base_delay * (2**retry_count)
+                    logger.debug(
+                        f"Server error ({e.response.status_code}) fetching digest for "
+                        f"{namespace}/{name}:{tag}, retry {retry_count + 1}/{max_retries} "
+                        f"after {delay:.1f}s"
+                    )
+                    await asyncio.sleep(delay)
+                    retry_count += 1
+                else:
+                    logger.warning(f"HTTP error fetching digest for {namespace}/{name}:{tag}: {e}")
+                    return None
+
+            except Exception as e:
+                logger.warning(f"Unexpected error fetching digest for {namespace}/{name}:{tag}: {e}")
+                return None
+
+        return None
 
     async def _parse_tool(self, repo: dict[str, Any], namespace: str) -> Tool:
         """Parse Docker Hub repository data into Tool model.
@@ -459,15 +534,39 @@ class DockerHubScraper(BaseScraper):
         # Select best tag based on priority
         selected_tag = self._select_tag_for_digest(available_tags)
 
-        # Fetch digest for selected tag
+        # Fetch digest for selected tag with fallback logic
         selected_digest = None
+        tool_id = f"docker_hub:{namespace}/{name}"
+
         if selected_tag:
             selected_digest = await self._fetch_tag_digest(namespace, name, selected_tag)
+
+            # If primary tag fails, try fallback tags
+            if not selected_digest and available_tags:
+                logger.info(f"Primary tag '{selected_tag}' failed for {tool_id}, trying fallbacks")
+
+                # Define fallback sequence
+                fallback_tags = ["stable", "latest", "lts", "alpine"]
+                # Remove the already-tried tag and tags not in available_tags
+                fallback_tags = [
+                    tag for tag in fallback_tags if tag in available_tags and tag != selected_tag
+                ]
+
+                # Try fallback tags
+                for fallback_tag in fallback_tags:
+                    logger.debug(f"Trying fallback tag '{fallback_tag}' for {tool_id}")
+                    selected_digest = await self._fetch_tag_digest(namespace, name, fallback_tag)
+                    if selected_digest:
+                        selected_tag = fallback_tag
+                        logger.info(f"Fallback tag '{fallback_tag}' succeeded for {tool_id}")
+                        break
+
             if not selected_digest:
-                tool_id = f"docker_hub:{namespace}/{name}"
-                logger.warning(f"Failed to fetch digest for {tool_id}, tag: {selected_tag}")
+                logger.warning(
+                    f"Failed to fetch digest for {tool_id} after trying "
+                    f"tag: {selected_tag} and fallbacks"
+                )
         else:
-            tool_id = f"docker_hub:{namespace}/{name}"
             logger.warning(f"No tags available for {tool_id}")
 
         return Tool(

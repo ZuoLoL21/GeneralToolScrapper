@@ -406,26 +406,33 @@ class TestDockerHubScraperIntegration:
 class TestDockerHubTagSelection:
     """Tests for tag selection functionality."""
 
+    def test_select_tag_for_digest_prefers_stable(self, tmp_path: Path) -> None:
+        """Test that 'stable' is preferred as the highest priority tag."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["alpine", "latest", "stable", "16.1.12"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "stable"
+
     def test_select_tag_for_digest_prefers_latest(self, tmp_path: Path) -> None:
-        """Test that 'latest' is preferred when available."""
+        """Test that 'latest' is preferred when 'stable' is not available."""
         scraper = DockerHubScraper(data_dir=tmp_path)
         tags = ["alpine", "latest", "debian", "16.1.12"]
         selected = scraper._select_tag_for_digest(tags)
         assert selected == "latest"
 
     def test_select_tag_for_digest_falls_back_to_alpine(self, tmp_path: Path) -> None:
-        """Test fallback to 'alpine' when 'latest' is not available."""
+        """Test fallback to 'alpine' when 'stable', 'latest', and 'lts' are not available."""
         scraper = DockerHubScraper(data_dir=tmp_path)
         tags = ["alpine", "debian", "16.1.12", "edge"]
         selected = scraper._select_tag_for_digest(tags)
         assert selected == "alpine"
 
     def test_select_tag_for_digest_falls_back_to_debian(self, tmp_path: Path) -> None:
-        """Test fallback to 'debian' when 'latest' and 'alpine' are not available."""
+        """Test fallback to semantic version when no preferred tags are available."""
         scraper = DockerHubScraper(data_dir=tmp_path)
         tags = ["debian", "16.1.12", "edge"]
         selected = scraper._select_tag_for_digest(tags)
-        assert selected == "debian"
+        assert selected == "16.1.12"  # Semantic version is selected over non-preferred tags
 
     def test_select_tag_for_digest_prefers_highest_semantic_version(self, tmp_path: Path) -> None:
         """Test semantic version selection (highest first)."""
@@ -555,7 +562,7 @@ class TestDockerHubTagFetching:
             with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest):
                 tool = await scraper._parse_tool(repo_data, "library")
 
-        assert tool.selected_image_tag == "latest"
+        assert tool.selected_image_tag == "stable"  # 'stable' is now preferred over 'latest'
         assert tool.selected_image_digest == "sha256:abc123def456"
         assert tool.digest_fetch_date is not None
 
@@ -591,7 +598,7 @@ class TestDockerHubTagFetching:
             with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest) as mock_fetch_digest:
                 tool = await scraper._parse_tool(repo_data, "bitnami")
 
-        # Verify _fetch_tag_digest was called with "latest" (highest priority)
+        # Verify _fetch_tag_digest was called with "latest" (highest priority among available tags)
         mock_fetch_digest.assert_called_once_with("bitnami", "postgresql", "latest")
 
         assert tool.selected_image_tag == "latest"

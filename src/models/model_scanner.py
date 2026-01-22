@@ -2,8 +2,31 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 
 from src.models.model_tool import Tool, Vulnerabilities
+
+
+class ScanErrorType(Enum):
+    """Classification of scan error types for intelligent retry logic."""
+
+    # Transient errors - retry immediately with exponential backoff
+    NETWORK_TIMEOUT = "network_timeout"
+    RATE_LIMIT = "rate_limit"
+    CACHE_LOCK = "cache_lock"
+
+    # Permanent errors - skip permanently, longer cache TTL
+    IMAGE_NOT_FOUND = "image_not_found"
+    MANIFEST_UNKNOWN = "manifest_unknown"
+    UNSCANNABLE_IMAGE = "unscannable_image"
+    UNAUTHORIZED = "unauthorized"
+
+    # Infrastructure errors - special handling
+    TRIVY_CRASH = "trivy_crash"
+    DOCKER_PULL_FAILED = "docker_pull_failed"
+
+    # Unknown/generic error
+    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -18,6 +41,8 @@ class ScanResult:
     image_ref: str
     scanned_tag: str | None = None
     scanned_digest: str | None = None
+    error_type: ScanErrorType = ScanErrorType.UNKNOWN
+    retry_count: int = 0
 
 
 @dataclass

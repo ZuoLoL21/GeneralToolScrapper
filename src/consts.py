@@ -113,6 +113,15 @@ TRIVY_STALENESS_DAYS = 7  # Re-scan after 7 days
 TRIVY_CONCURRENCY = 1  # Max concurrent scans (set to 1 to avoid cache lock conflicts)
 TRIVY_FAILED_SCAN_TTL = 3600  # 1 hour cache for failed scans
 
+# Trivy cache isolation and error handling
+TRIVY_CACHE_CLEANUP_THRESHOLD_SECONDS = 600  # 10 minutes - consider locks stale after this
+TRIVY_MAX_CACHE_LOCK_RETRIES = 4  # Maximum retries for cache lock errors
+TRIVY_RETRY_BASE_DELAY = 1.0  # Base delay in seconds for exponential backoff
+
+# Manifest validation and unscannable images
+DOCKER_MANIFEST_VALIDATION_ENABLED = True  # Pre-validate images before scanning
+UNSCANNABLE_CACHE_TTL = 604800  # 7 days - cache for permanently unscannable images
+
 # Docker digest constants
 DOCKER_DIGEST_STALENESS_DAYS = 30  # Refetch digest after 30 days
 

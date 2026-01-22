@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from src.consts import TRIVY_UNSCANNABLE_IMAGES, TRIVY_CONCURRENCY
-from src.models.model_scanner import ScanBatchResult
+from src.consts import DEFAULT_DATA_DIR, TRIVY_CONCURRENCY, TRIVY_UNSCANNABLE_IMAGES
+from src.models.model_scanner import ScanBatchResult, ScanErrorType
 from src.models.model_tool import SecurityStatus, SourceType, Tool
 from src.scanner.image_resolver import ImageResolver
 from src.scanner.scan_cache import ScanCache
@@ -42,6 +44,57 @@ class ScanOrchestrator:
         self.scan_cache = scan_cache
         self.file_manager = file_manager
         self.staleness_days = staleness_days
+
+    def _get_cache_ttl_for_error(self, error_type: ScanErrorType) -> int:
+        """Determine cache TTL based on error type.
+
+        Permanent errors (manifest not found, image not found) get longer TTL (7 days).
+        Transient errors (network, rate limit, cache lock) get shorter TTL (1 hour).
+
+        Args:
+            error_type: The classified error type
+
+        Returns:
+            TTL in seconds
+        """
+        # Permanent errors - cache for 7 days
+        if error_type in [
+            ScanErrorType.IMAGE_NOT_FOUND,
+            ScanErrorType.MANIFEST_UNKNOWN,
+            ScanErrorType.UNSCANNABLE_IMAGE,
+            ScanErrorType.UNAUTHORIZED,
+        ]:
+            return 7 * 24 * 3600  # 7 days
+
+        # Transient errors - cache for 1 hour (default)
+        return 3600  # 1 hour
+
+    def _create_temp_cache_dir(self) -> Path:
+        """Create a temporary cache directory for this scan batch.
+
+        Creates: data/cache/trivy_cache_{timestamp}
+
+        Returns:
+            Path to the created cache directory
+        """
+        timestamp = int(time.time())
+        cache_dir = Path(DEFAULT_DATA_DIR) / "cache" / f"trivy_cache_{timestamp}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created temporary Trivy cache directory: {cache_dir}")
+        return cache_dir
+
+    def _cleanup_cache_dir(self, cache_dir: Path) -> None:
+        """Clean up temporary cache directory after scanning.
+
+        Args:
+            cache_dir: Path to cache directory to remove
+        """
+        try:
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+                logger.info(f"Cleaned up cache directory: {cache_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup cache directory {cache_dir}: {e}")
 
     def filter_tools_needing_scan(
         self,
@@ -109,10 +162,11 @@ class ScanOrchestrator:
         concurrency: int = TRIVY_CONCURRENCY,
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> ScanBatchResult:
-        """Scan tools with concurrency control.
+        """Scan tools with concurrency control and isolated cache.
 
         Uses asyncio.Semaphore to limit parallel scans.
         Calls progress_callback(current, total) for CLI updates.
+        Creates temporary cache directory to avoid lock conflicts.
 
         Args:
             tools: List of tools to scan
@@ -123,94 +177,112 @@ class ScanOrchestrator:
             ScanBatchResult with aggregated results
         """
         start_time = time.time()
-        semaphore = asyncio.Semaphore(concurrency)
-        updated_tools: list[Tool] = []
-        failures: dict[str, str] = {}
-        succeeded = 0
-        failed = 0
-        skipped = 0
-        completed = 0
 
-        async def scan_one(tool: Tool) -> Tool | None:
-            """Scan a single tool."""
-            nonlocal completed, succeeded, failed, skipped
+        # Create temporary cache directory for this batch
+        cache_dir = self._create_temp_cache_dir()
 
-            async with semaphore:
-                # Check failure cache
-                if self.scan_cache.is_failed(tool.id):
-                    logger.debug(f"Skipping {tool.id} (cached failure)")
-                    skipped += 1
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(tools))
-                    return None
+        # Set cache directory on scanner
+        original_cache_dir = self.scanner.cache_dir
+        self.scanner.cache_dir = cache_dir
 
-                # Resolve image reference
-                result_tuple = self.resolver.resolve_image_ref(tool)
-                if not result_tuple:
-                    logger.warning(f"Could not resolve image for {tool.id}")
-                    failures[tool.id] = "Could not resolve image reference"
-                    failed += 1
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(tools))
-                    return None
+        try:
+            semaphore = asyncio.Semaphore(concurrency)
+            updated_tools: list[Tool] = []
+            failures: dict[str, str] = {}
+            succeeded = 0
+            failed = 0
+            skipped = 0
+            completed = 0
 
-                image_ref, selected_tag = result_tuple
+            async def scan_one(tool: Tool) -> Tool | None:
+                """Scan a single tool."""
+                nonlocal completed, succeeded, failed, skipped
 
-                # Scan
-                logger.info(f"Scanning {tool.id} ({image_ref}, tag={selected_tag})...")
-                result = await self.scanner.scan_image(image_ref)
+                async with semaphore:
+                    # Check failure cache
+                    if self.scan_cache.is_failed(tool.id):
+                        logger.debug(f"Skipping {tool.id} (cached failure)")
+                        skipped += 1
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(tools))
+                        return None
 
-                # Update or cache failure
-                if result.success:
-                    updated_tool = self.update_tool_security(tool, result)
-                    logger.info(
-                        f"✓ {tool.id}: {result.vulnerabilities.critical}C "
-                        f"{result.vulnerabilities.high}H {result.vulnerabilities.medium}M "
-                        f"{result.vulnerabilities.low}L"
-                    )
+                    # Resolve image reference
+                    result_tuple = self.resolver.resolve_image_ref(tool)
+                    if not result_tuple:
+                        logger.warning(f"Could not resolve image for {tool.id}")
+                        failures[tool.id] = "Could not resolve image reference"
+                        failed += 1
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(tools))
+                        return None
 
-                    # Save immediately (incremental save)
-                    try:
-                        self.file_manager.save_processed([updated_tool], merge=True)
-                        logger.debug(f"Saved scan result for {tool.id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to save {tool.id}: {e}")
-                        # Don't fail the scan if save fails
+                    image_ref, selected_tag = result_tuple
 
-                    succeeded += 1
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(tools))
-                    return updated_tool
-                else:
-                    self.scan_cache.mark_failed(tool.id, result.error or "Unknown error")
-                    failures[tool.id] = result.error or "Unknown error"
-                    logger.warning(f"✗ {tool.id}: {result.error}")
-                    failed += 1
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, len(tools))
-                    return None
+                    # Scan
+                    logger.info(f"Scanning {tool.id} ({image_ref}, tag={selected_tag})...")
+                    result = await self.scanner.scan_image(image_ref)
 
-        # Run all scans concurrently
-        results = await asyncio.gather(*[scan_one(tool) for tool in tools])
+                    # Update or cache failure
+                    if result.success:
+                        updated_tool = self.update_tool_security(tool, result)
+                        logger.info(
+                            f"✓ {tool.id}: {result.vulnerabilities.critical}C "
+                            f"{result.vulnerabilities.high}H {result.vulnerabilities.medium}M "
+                            f"{result.vulnerabilities.low}L"
+                        )
 
-        # Filter out None results
-        updated_tools = [r for r in results if r is not None]
+                        # Save immediately (incremental save)
+                        try:
+                            self.file_manager.save_processed([updated_tool], merge=True)
+                            logger.debug(f"Saved scan result for {tool.id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to save {tool.id}: {e}")
+                            # Don't fail the scan if save fails
 
-        duration = time.time() - start_time
+                        succeeded += 1
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(tools))
+                        return updated_tool
+                    else:
+                        # Determine cache TTL based on error type
+                        cache_ttl = self._get_cache_ttl_for_error(result.error_type)
+                        self.scan_cache.mark_failed(
+                            tool.id, result.error or "Unknown error", ttl=cache_ttl
+                        )
+                        failures[tool.id] = result.error or "Unknown error"
+                        logger.warning(f"✗ {tool.id}: {result.error} (type: {result.error_type.value})")
+                        failed += 1
+                        completed += 1
+                        if progress_callback:
+                            progress_callback(completed, len(tools))
+                        return None
 
-        return ScanBatchResult(
-            total=len(tools),
-            succeeded=succeeded,
-            failed=failed,
-            skipped=skipped,
-            updated_tools=updated_tools,
-            failures=failures,
-            duration_seconds=duration,
-        )
+            # Run all scans concurrently
+            results = await asyncio.gather(*[scan_one(tool) for tool in tools])
+
+            # Filter out None results
+            updated_tools = [r for r in results if r is not None]
+
+            duration = time.time() - start_time
+
+            return ScanBatchResult(
+                total=len(tools),
+                succeeded=succeeded,
+                failed=failed,
+                skipped=skipped,
+                updated_tools=updated_tools,
+                failures=failures,
+                duration_seconds=duration,
+            )
+
+        finally:
+            # Restore original cache dir and cleanup
+            self.scanner.cache_dir = original_cache_dir
+            self._cleanup_cache_dir(cache_dir)
 
     def update_tool_security(self, tool: Tool, scan_result) -> Tool:
         """Update tool.security with scan results.

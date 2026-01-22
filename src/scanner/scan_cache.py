@@ -22,19 +22,21 @@ class ScanCache:
         self.failed_scan_ttl = failed_scan_ttl
         self.category = "security_scan_failures"
 
-    def mark_failed(self, tool_id: str, error: str) -> None:
-        """Cache failed scan with TTL.
+    def mark_failed(self, tool_id: str, error: str, ttl: int | None = None) -> None:
+        """Cache failed scan with custom or default TTL.
 
         Args:
             tool_id: Tool ID that failed to scan
             error: Error message from the failed scan
+            ttl: Custom TTL in seconds (default: use self.failed_scan_ttl)
         """
-        logger.debug(f"Caching failed scan for {tool_id}: {error}")
+        cache_ttl = ttl if ttl is not None else self.failed_scan_ttl
+        logger.debug(f"Caching failed scan for {tool_id} (TTL: {cache_ttl}s): {error}")
         self.cache.put(
             key=f"failed_{tool_id}",
             value={"error": error, "timestamp": datetime.now(UTC).isoformat()},
             category=self.category,
-            ttl=self.failed_scan_ttl,
+            ttl=cache_ttl,
         )
 
     def is_failed(self, tool_id: str) -> bool:
