@@ -113,6 +113,9 @@ TRIVY_STALENESS_DAYS = 7  # Re-scan after 7 days
 TRIVY_CONCURRENCY = 1  # Max concurrent scans (set to 1 to avoid cache lock conflicts)
 TRIVY_FAILED_SCAN_TTL = 3600  # 1 hour cache for failed scans
 
+# Docker digest constants
+DOCKER_DIGEST_STALENESS_DAYS = 30  # Refetch digest after 30 days
+
 # Images that cannot be scanned (special/reserved images)
 TRIVY_UNSCANNABLE_IMAGES = [
     "docker_hub:library/scratch",  # Virtual base image, cannot be pulled

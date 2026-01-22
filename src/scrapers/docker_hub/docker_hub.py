@@ -288,6 +288,129 @@ class DockerHubScraper(BaseScraper):
             logger.warning(f"Error fetching tags for {namespace}/{name}: {e}")
             return []
 
+    def _select_tag_for_digest(self, available_tags: list[str]) -> str | None:
+        """Select best tag for digest retrieval.
+
+        Priority:
+        1. 'latest' - most recent stable version
+        2. 'alpine' - lightweight variant
+        3. 'debian' - debian-based variant
+        4. Major versions - highest semantic version (e.g., '16.1.12' > '16.0.4')
+        5. First available - fallback
+        """
+        if not available_tags:
+            return None
+
+        # Priority 1-3: Named tags
+        for preferred in ['latest', 'alpine', 'debian']:
+            if preferred in available_tags:
+                return preferred
+
+        # Priority 4: Semantic versions (16.1.12, 3.11.5, 20.4, etc.)
+        semantic_versions = self._extract_semantic_versions(available_tags)
+        if semantic_versions:
+            return semantic_versions[0]  # Already sorted by version descending
+
+        # Priority 5: First available
+        return available_tags[0]
+
+    def _extract_semantic_versions(self, tags: list[str]) -> list[str]:
+        """Extract and sort semantic version tags.
+
+        Matches: 16, 16.1, 16.1.12, 3.11.5, etc.
+        Sorts by version number descending (highest first).
+        """
+        import re
+
+        version_pattern = re.compile(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?$')
+        versions = []
+
+        for tag in tags:
+            match = version_pattern.match(tag)
+            if match:
+                # Parse into tuple of ints for proper sorting
+                major = int(match.group(1))
+                minor = int(match.group(2)) if match.group(2) else 0
+                patch = int(match.group(3)) if match.group(3) else 0
+                versions.append((tag, (major, minor, patch)))
+
+        # Sort by version tuple descending
+        versions.sort(key=lambda x: x[1], reverse=True)
+        return [tag for tag, _ in versions]
+
+    async def _get_registry_token(self, namespace: str, name: str) -> str | None:
+        """Get Docker Registry API authentication token.
+
+        Tokens are valid for ~5 minutes, cache them.
+        """
+        try:
+            url = "https://auth.docker.io/token"
+            params = {
+                "scope": f"repository:{namespace}/{name}:pull",
+                "service": "registry.docker.io"
+            }
+
+            # Use a simple cache key
+            cache_key = f"registry_token_{namespace}_{name}"
+
+            # Check cache first (5-minute TTL)
+            if hasattr(self, '_token_cache'):
+                cached = self._token_cache.get(cache_key)
+                if cached:
+                    return cached
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+                token = data.get("token")
+
+                # Cache the token
+                if not hasattr(self, '_token_cache'):
+                    self._token_cache = {}
+                self._token_cache[cache_key] = token
+
+                return token
+
+        except Exception as e:
+            logger.warning(f"Failed to get registry token for {namespace}/{name}: {e}")
+            return None
+
+    async def _fetch_tag_digest(self, namespace: str, name: str, tag: str) -> str | None:
+        """Fetch digest for a specific Docker image tag.
+
+        Returns digest string like 'sha256:abc123...' or None on failure.
+        """
+        try:
+            # Get authentication token
+            token = await self._get_registry_token(namespace, name)
+            if not token:
+                return None
+
+            # Request manifest to get digest
+            url = f"https://registry-1.docker.io/v2/{namespace}/{name}/manifests/{tag}"
+            headers = {
+                "Accept": "application/vnd.docker.distribution.manifest.v2+json",
+                "Authorization": f"Bearer {token}"
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=10.0)
+                response.raise_for_status()
+
+                # Extract digest from response header
+                digest = response.headers.get("Docker-Content-Digest")
+                if digest:
+                    logger.debug(f"Fetched digest for {namespace}/{name}:{tag} → {digest[:19]}...")
+                    return digest
+                else:
+                    logger.warning(f"No digest header for {namespace}/{name}:{tag}")
+                    return None
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch digest for {namespace}/{name}:{tag}: {e}")
+            return None
+
     async def _parse_tool(self, repo: dict[str, Any], namespace: str) -> Tool:
         """Parse Docker Hub repository data into Tool model.
 
@@ -330,8 +453,22 @@ class DockerHubScraper(BaseScraper):
             elif days_since_update > 180:
                 lifecycle = Lifecycle.STABLE
 
-        # Fetch available Docker image tags during scraping
-        docker_tags = await self._fetch_available_tags(namespace, name)
+        # Fetch available tags and select best tag for digest retrieval
+        available_tags = await self._fetch_available_tags(namespace, name)
+
+        # Select best tag based on priority
+        selected_tag = self._select_tag_for_digest(available_tags)
+
+        # Fetch digest for selected tag
+        selected_digest = None
+        if selected_tag:
+            selected_digest = await self._fetch_tag_digest(namespace, name, selected_tag)
+            if not selected_digest:
+                tool_id = f"docker_hub:{namespace}/{name}"
+                logger.warning(f"Failed to fetch digest for {tool_id}, tag: {selected_tag}")
+        else:
+            tool_id = f"docker_hub:{namespace}/{name}"
+            logger.warning(f"No tags available for {tool_id}")
 
         return Tool(
             id=f"docker_hub:{namespace}/{name}",
@@ -359,7 +496,9 @@ class DockerHubScraper(BaseScraper):
             ),
             lifecycle=lifecycle,
             tags=_extract_tags(repo),
-            docker_tags=docker_tags,
+            selected_image_tag=selected_tag,
+            selected_image_digest=selected_digest,
+            digest_fetch_date=datetime.now(UTC) if selected_digest else None,
         )
 
     async def scrape(self) -> AsyncIterator[Tool]:

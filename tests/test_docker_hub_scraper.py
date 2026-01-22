@@ -171,7 +171,8 @@ class TestDockerHubScraper:
         scraper = DockerHubScraper(data_dir=tmp_path)
         assert scraper.source_name == "docker_hub"
 
-    def test_parse_official_image(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_parse_official_image(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
         repo_data = {
             "name": "postgres",
@@ -182,7 +183,7 @@ class TestDockerHubScraper:
             "last_updated": "2024-01-15T10:30:00Z",
         }
 
-        tool = scraper._parse_tool(repo_data, "library")
+        tool = await scraper._parse_tool(repo_data, "library")
 
         assert tool.id == "docker_hub:library/postgres"
         assert tool.name == "postgres"
@@ -192,7 +193,8 @@ class TestDockerHubScraper:
         assert tool.metrics.downloads == 1_000_000_000
         assert tool.metrics.stars == 10000
 
-    def test_parse_verified_publisher(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_parse_verified_publisher(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
         repo_data = {
             "name": "nginx",
@@ -203,14 +205,15 @@ class TestDockerHubScraper:
             "last_updated": "2024-01-10T00:00:00Z",
         }
 
-        tool = scraper._parse_tool(repo_data, "bitnami")
+        tool = await scraper._parse_tool(repo_data, "bitnami")
 
         assert tool.id == "docker_hub:bitnami/nginx"
         assert tool.name == "bitnami/nginx"
         assert tool.maintainer.type == MaintainerType.COMPANY
         assert tool.maintainer.verified is True
 
-    def test_parse_user_image(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_parse_user_image(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
         repo_data = {
             "name": "myapp",
@@ -220,13 +223,14 @@ class TestDockerHubScraper:
             "last_updated": "2024-01-01T00:00:00Z",
         }
 
-        tool = scraper._parse_tool(repo_data, "someuser")
+        tool = await scraper._parse_tool(repo_data, "someuser")
 
         assert tool.id == "docker_hub:someuser/myapp"
         assert tool.maintainer.type == MaintainerType.USER
         assert tool.maintainer.verified is False
 
-    def test_parse_lifecycle_from_age(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_parse_lifecycle_from_age(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
 
         # Active: updated within 180 days
@@ -234,7 +238,7 @@ class TestDockerHubScraper:
             "name": "active",
             "last_updated": (datetime.now(UTC) - timedelta(days=30)).isoformat(),
         }
-        tool = scraper._parse_tool(active_repo, "library")
+        tool = await scraper._parse_tool(active_repo, "library")
         assert tool.lifecycle == Lifecycle.ACTIVE
 
         # Stable: updated 180-365 days ago
@@ -242,7 +246,7 @@ class TestDockerHubScraper:
             "name": "stable",
             "last_updated": (datetime.now(UTC) - timedelta(days=200)).isoformat(),
         }
-        tool = scraper._parse_tool(stable_repo, "library")
+        tool = await scraper._parse_tool(stable_repo, "library")
         assert tool.lifecycle == Lifecycle.STABLE
 
         # Legacy: not updated in over a year
@@ -250,28 +254,30 @@ class TestDockerHubScraper:
             "name": "legacy",
             "last_updated": (datetime.now(UTC) - timedelta(days=400)).isoformat(),
         }
-        tool = scraper._parse_tool(legacy_repo, "library")
+        tool = await scraper._parse_tool(legacy_repo, "library")
         assert tool.lifecycle == Lifecycle.LEGACY
 
-    def test_parse_handles_missing_fields(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_parse_handles_missing_fields(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
         repo_data = {"name": "minimal"}  # Minimal data
 
-        tool = scraper._parse_tool(repo_data, "user")
+        tool = await scraper._parse_tool(repo_data, "user")
 
         assert tool.id == "docker_hub:user/minimal"
         assert tool.description == ""
         assert tool.metrics.downloads == 0
         assert tool.metrics.stars == 0
 
-    def test_parse_deprecated_image(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_parse_deprecated_image(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
         repo_data = {
             "name": "deprecated",
             "is_archived": True,
         }
 
-        tool = scraper._parse_tool(repo_data, "library")
+        tool = await scraper._parse_tool(repo_data, "library")
         assert tool.maintenance.is_deprecated is True
 
     @pytest.mark.asyncio
@@ -335,26 +341,28 @@ class TestDockerHubScraper:
         assert repos[0]["name"] == "repo1"
         assert repos[2]["name"] == "repo3"
 
-    def test_tool_id_parsing(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_tool_id_parsing(self, tmp_path: Path) -> None:
         """Test various tool ID formats."""
         scraper = DockerHubScraper(data_dir=tmp_path)
 
         # Official image (library namespace)
         repo = {"name": "postgres"}
-        tool = scraper._parse_tool(repo, "library")
+        tool = await scraper._parse_tool(repo, "library")
         assert tool.id == "docker_hub:library/postgres"
         assert tool.source_url == "https://hub.docker.com/r/library/postgres"
 
         # User/org image
         repo = {"name": "myimage"}
-        tool = scraper._parse_tool(repo, "myorg")
+        tool = await scraper._parse_tool(repo, "myorg")
         assert tool.id == "docker_hub:myorg/myimage"
         assert tool.name == "myorg/myimage"
 
-    def test_canonical_name_is_lowercase(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_canonical_name_is_lowercase(self, tmp_path: Path) -> None:
         scraper = DockerHubScraper(data_dir=tmp_path)
         repo = {"name": "PostgreSQL"}
-        tool = scraper._parse_tool(repo, "library")
+        tool = await scraper._parse_tool(repo, "library")
         assert tool.identity.canonical_name == "postgresql"
 
 
@@ -393,6 +401,72 @@ class TestDockerHubScraperIntegration:
         assert "ns1" in scraper._queue._failed
         # ns2 should be marked as completed
         assert "ns2" in scraper._queue._completed
+
+
+class TestDockerHubTagSelection:
+    """Tests for tag selection functionality."""
+
+    def test_select_tag_for_digest_prefers_latest(self, tmp_path: Path) -> None:
+        """Test that 'latest' is preferred when available."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["alpine", "latest", "debian", "16.1.12"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "latest"
+
+    def test_select_tag_for_digest_falls_back_to_alpine(self, tmp_path: Path) -> None:
+        """Test fallback to 'alpine' when 'latest' is not available."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["alpine", "debian", "16.1.12", "edge"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "alpine"
+
+    def test_select_tag_for_digest_falls_back_to_debian(self, tmp_path: Path) -> None:
+        """Test fallback to 'debian' when 'latest' and 'alpine' are not available."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["debian", "16.1.12", "edge"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "debian"
+
+    def test_select_tag_for_digest_prefers_highest_semantic_version(self, tmp_path: Path) -> None:
+        """Test semantic version selection (highest first)."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["16.1.12", "16.0.4", "3.11.5", "20.4", "edge"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "20.4"  # Highest major version
+
+    def test_select_tag_for_digest_semantic_version_sorting(self, tmp_path: Path) -> None:
+        """Test semantic version sorting with same major version."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["16.1.12", "16.2.4", "16.0.1", "edge"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "16.2.4"  # Highest minor version for same major
+
+    def test_select_tag_for_digest_fallback_to_first(self, tmp_path: Path) -> None:
+        """Test fallback to first tag when no preferred tags exist."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["edge", "experimental", "custom-tag"]
+        selected = scraper._select_tag_for_digest(tags)
+        assert selected == "edge"
+
+    def test_select_tag_for_digest_empty_list_returns_none(self, tmp_path: Path) -> None:
+        """Test that empty tag list returns None."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        selected = scraper._select_tag_for_digest([])
+        assert selected is None
+
+    def test_extract_semantic_versions(self, tmp_path: Path) -> None:
+        """Test semantic version extraction and sorting."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["latest", "16.1.12", "alpine", "16.0.4", "3.11.5", "20", "edge"]
+        versions = scraper._extract_semantic_versions(tags)
+        assert versions == ["20", "16.1.12", "16.0.4", "3.11.5"]
+
+    def test_extract_semantic_versions_handles_partial_versions(self, tmp_path: Path) -> None:
+        """Test that partial semantic versions (16, 16.1) are handled correctly."""
+        scraper = DockerHubScraper(data_dir=tmp_path)
+        tags = ["16", "16.1", "16.1.12", "3.11", "3"]
+        versions = scraper._extract_semantic_versions(tags)
+        assert versions == ["16.1.12", "16.1", "16", "3.11", "3"]
 
 
 class TestDockerHubTagFetching:
@@ -463,8 +537,8 @@ class TestDockerHubTagFetching:
         assert request_params == {"page_size": 25}
 
     @pytest.mark.asyncio
-    async def test_parse_tool_populates_docker_tags(self, tmp_path: Path) -> None:
-        """Test that _parse_tool fetches and populates docker_tags."""
+    async def test_parse_tool_populates_digest(self, tmp_path: Path) -> None:
+        """Test that _parse_tool fetches and populates image digest."""
         scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
         repo_data = {
@@ -475,15 +549,19 @@ class TestDockerHubTagFetching:
         }
 
         mock_tags = ["latest", "stable", "alpine", "16-bullseye"]
+        mock_digest = "sha256:abc123def456"
 
         with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
-            tool = await scraper._parse_tool(repo_data, "library")
+            with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest):
+                tool = await scraper._parse_tool(repo_data, "library")
 
-        assert tool.docker_tags == ["latest", "stable", "alpine", "16-bullseye"]
+        assert tool.selected_image_tag == "latest"
+        assert tool.selected_image_digest == "sha256:abc123def456"
+        assert tool.digest_fetch_date is not None
 
     @pytest.mark.asyncio
-    async def test_parse_tool_empty_docker_tags_on_fetch_failure(self, tmp_path: Path) -> None:
-        """Test that docker_tags is empty list if tag fetching fails."""
+    async def test_parse_tool_no_digest_on_fetch_failure(self, tmp_path: Path) -> None:
+        """Test that digest is None if tag/digest fetching fails."""
         scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
         repo_data = {
@@ -495,52 +573,44 @@ class TestDockerHubTagFetching:
         with patch.object(scraper, "_fetch_available_tags", return_value=[]):
             tool = await scraper._parse_tool(repo_data, "library")
 
-        assert tool.docker_tags == []
+        assert tool.selected_image_tag is None
+        assert tool.selected_image_digest is None
+        assert tool.digest_fetch_date is None
 
     @pytest.mark.asyncio
-    async def test_fetch_tags_called_with_correct_namespace_and_name(self, tmp_path: Path) -> None:
-        """Test that tag fetching uses correct namespace and name."""
+    async def test_fetch_tags_and_digest_workflow(self, tmp_path: Path) -> None:
+        """Test the full workflow of fetching tags and digest."""
         scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
         repo_data = {"name": "postgresql"}
-        captured_args = {}
 
-        async def capture_fetch_args(namespace, name, limit=50):
-            captured_args["namespace"] = namespace
-            captured_args["name"] = name
-            captured_args["limit"] = limit
-            return []
+        mock_tags = ["latest", "alpine", "16.1.12"]
+        mock_digest = "sha256:test123"
 
-        with patch.object(scraper, "_fetch_available_tags", side_effect=capture_fetch_args):
-            await scraper._parse_tool(repo_data, "bitnami")
+        with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
+            with patch.object(scraper, "_fetch_tag_digest", return_value=mock_digest) as mock_fetch_digest:
+                tool = await scraper._parse_tool(repo_data, "bitnami")
 
-        assert captured_args["namespace"] == "bitnami"
-        assert captured_args["name"] == "postgresql"
-        assert captured_args["limit"] == 50
+        # Verify _fetch_tag_digest was called with "latest" (highest priority)
+        mock_fetch_digest.assert_called_once_with("bitnami", "postgresql", "latest")
+
+        assert tool.selected_image_tag == "latest"
+        assert tool.selected_image_digest == "sha256:test123"
 
     @pytest.mark.asyncio
-    async def test_fetch_tags_caches_response(self, tmp_path: Path) -> None:
-        """Test that tag fetching uses response cache."""
-        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=True)
+    async def test_digest_fetch_failure_logs_warning(self, tmp_path: Path) -> None:
+        """Test that digest fetch failures are logged but don't crash."""
+        scraper = DockerHubScraper(data_dir=tmp_path, use_cache=False)
 
-        mock_tags_response = {
-            "results": [{"name": "latest"}, {"name": "stable"}]
-        }
+        repo_data = {"name": "test"}
+        mock_tags = ["latest"]
 
-        request_count = 0
+        with patch.object(scraper, "_fetch_available_tags", return_value=mock_tags):
+            # Simulate digest fetch failure
+            with patch.object(scraper, "_fetch_tag_digest", return_value=None):
+                tool = await scraper._parse_tool(repo_data, "library")
 
-        async def count_requests(endpoint, params=None, use_cache=True):
-            nonlocal request_count
-            request_count += 1
-            return mock_tags_response
-
-        with patch.object(scraper, "_request", side_effect=count_requests):
-            # First call should make a request
-            tags1 = await scraper._fetch_available_tags("library", "postgres")
-            # Second call should use cache (if caching is enabled)
-            tags2 = await scraper._fetch_available_tags("library", "postgres")
-
-        # Note: The actual caching behavior depends on _request implementation
-        # This test just verifies the method works correctly
-        assert tags1 == ["latest", "stable"]
-        assert tags2 == ["latest", "stable"]
+        # Tool should still be created, but without digest
+        assert tool.selected_image_tag == "latest"
+        assert tool.selected_image_digest is None
+        assert tool.digest_fetch_date is None

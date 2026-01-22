@@ -207,6 +207,84 @@ class TestTrivyScanner:
             assert result.scanned_tag == "edge"
             assert result.error == "Scan failed"
 
+    @pytest.mark.asyncio
+    async def test_scan_image_extracts_digest_from_image_ref(self) -> None:
+        """Test that scan_image extracts digest from digest reference."""
+        scanner = TrivyScanner()
+
+        async def mock_scan_remote(image_ref):
+            return ScanResult(
+                success=True,
+                vulnerabilities=Vulnerabilities(critical=1, high=2, medium=1, low=0),
+                scan_date=datetime.now(UTC),
+                error=None,
+                scan_duration_seconds=5.0,
+                image_ref=image_ref,
+            )
+
+        with patch.object(scanner, "_scan_remote", side_effect=mock_scan_remote):
+            result = await scanner.scan_image("postgres@sha256:abc123def456")
+
+            assert result.success is True
+            assert result.scanned_digest == "sha256:abc123def456"
+            assert result.scanned_tag is None  # No tag when using digest
+            assert result.image_ref == "postgres@sha256:abc123def456"
+
+    @pytest.mark.asyncio
+    async def test_scan_image_digest_with_namespace(self) -> None:
+        """Test digest extraction for image with namespace."""
+        scanner = TrivyScanner()
+
+        async def mock_scan_remote(image_ref):
+            return ScanResult(
+                success=True,
+                vulnerabilities=Vulnerabilities(),
+                scan_date=datetime.now(UTC),
+                error=None,
+                scan_duration_seconds=3.0,
+                image_ref=image_ref,
+            )
+
+        with patch.object(scanner, "_scan_remote", side_effect=mock_scan_remote):
+            result = await scanner.scan_image("bitnami/postgresql@sha256:xyz789uvw321")
+
+            assert result.scanned_digest == "sha256:xyz789uvw321"
+            assert result.scanned_tag is None
+
+    @pytest.mark.asyncio
+    async def test_scan_image_fallback_to_local_preserves_digest(self) -> None:
+        """Test that digest is preserved when falling back to local scan."""
+        scanner = TrivyScanner()
+
+        # Mock remote scan to fail
+        mock_remote_fail = ScanResult(
+            success=False,
+            vulnerabilities=None,
+            scan_date=datetime.now(UTC),
+            error="Remote scan failed",
+            scan_duration_seconds=1.0,
+            image_ref="postgres@sha256:test123",
+        )
+
+        # Mock local scan to succeed
+        mock_local_success = ScanResult(
+            success=True,
+            vulnerabilities=Vulnerabilities(critical=0, high=1, medium=2, low=3),
+            scan_date=datetime.now(UTC),
+            error=None,
+            scan_duration_seconds=10.0,
+            image_ref="postgres@sha256:test123",
+        )
+
+        with patch.object(scanner, "_scan_remote", return_value=mock_remote_fail), \
+             patch.object(scanner, "_scan_local", return_value=mock_local_success):
+            result = await scanner.scan_image("postgres@sha256:test123")
+
+            assert result.success is True
+            assert result.scanned_digest == "sha256:test123"
+            assert result.scanned_tag is None
+            assert result.image_ref == "postgres@sha256:test123"
+
     def test_is_trivy_installed(self) -> None:
         """Test Trivy installation check."""
         scanner = TrivyScanner(trivy_path="trivy")

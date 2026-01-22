@@ -131,10 +131,15 @@ class TestFileManager:
         self, file_manager: FileManager, sample_tools: list[Tool]
     ) -> None:
         """Test saving processed tools."""
-        path = file_manager.save_processed(sample_tools)
+        result = file_manager.save_processed(sample_tools)
+
+        # save_processed returns a tuple (path, new_count)
+        assert isinstance(result, tuple)
+        path, new_count = result
 
         assert path.exists()
         assert path.name == "tools.json"
+        assert new_count == 2  # Both tools are new
 
         # Verify content
         data = json.loads(path.read_text())
@@ -215,9 +220,11 @@ class TestFileManager:
         """Test saving statistics."""
         global_stats, category_stats = sample_stats
 
-        global_path, category_path = file_manager.save_stats(
-            global_stats, category_stats
-        )
+        result = file_manager.save_stats(global_stats, category_stats)
+
+        # save_stats returns a tuple (global_path, category_path)
+        assert isinstance(result, tuple)
+        global_path, category_path = result
 
         assert global_path.exists()
         assert category_path.exists()

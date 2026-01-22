@@ -48,13 +48,17 @@ class TrivyScanner:
     ) -> ScanResult:
         """Scan Docker image using Trivy.
 
+        Supports both digest and tag references:
+        - Digest: postgres@sha256:abc123...
+        - Tag: postgres:latest
+
         Strategy:
         1. Try remote: trivy image --scanners vuln <image>
         2. If fails: docker pull + trivy image <image>
         3. Parse JSON output → Vulnerabilities
 
         Args:
-            image_ref: Docker image reference (e.g., "postgres:latest")
+            image_ref: Docker image reference (e.g., "postgres:latest" or "postgres@sha256:...")
             try_remote_first: Override instance setting for remote-first strategy
 
         Returns:
@@ -63,9 +67,15 @@ class TrivyScanner:
         start_time = time.time()
         use_remote = try_remote_first if try_remote_first is not None else self.try_remote_first
 
-        # Extract tag from image_ref (e.g., "postgres:stable" → "stable")
+        # Extract digest or tag from image_ref
         scanned_tag = None
-        if ":" in image_ref:
+        scanned_digest = None
+
+        if "@sha256:" in image_ref:
+            # Digest reference
+            scanned_digest = image_ref.split("@")[-1]
+        elif ":" in image_ref:
+            # Tag reference
             scanned_tag = image_ref.split(":")[-1]
 
         logger.info(f"Scanning image: {image_ref}")
@@ -75,7 +85,7 @@ class TrivyScanner:
             logger.debug(f"Attempting remote scan for {image_ref}")
             result = await self._scan_remote(image_ref)
             if result.success:
-                # Update duration and add scanned_tag
+                # Update duration and add scanned_tag/digest
                 duration = time.time() - start_time
                 return ScanResult(
                     success=result.success,
@@ -85,6 +95,7 @@ class TrivyScanner:
                     scan_duration_seconds=duration,
                     image_ref=image_ref,
                     scanned_tag=scanned_tag,
+                    scanned_digest=scanned_digest,
                 )
             # logger.warning(f"Remote scan failed for {image_ref}, falling back to local")
 
@@ -92,7 +103,7 @@ class TrivyScanner:
         logger.debug(f"Attempting local scan for {image_ref}")
         result = await self._scan_local(image_ref)
 
-        # Update duration and add scanned_tag
+        # Update duration and add scanned_tag/digest
         duration = time.time() - start_time
         return ScanResult(
             success=result.success,
@@ -102,6 +113,7 @@ class TrivyScanner:
             scan_duration_seconds=duration,
             image_ref=image_ref,
             scanned_tag=scanned_tag,
+            scanned_digest=scanned_digest,
         )
 
     async def _scan_remote(self, image_ref: str) -> ScanResult:

@@ -107,17 +107,19 @@ class TestScrapeCLI:
         self, mock_pipeline: MagicMock, sample_tools_for_cli: list[Tool]
     ) -> None:
         """Test successful scrape command."""
-        mock_pipeline.return_value = sample_tools_for_cli
+        # run_scrape_pipeline returns (all_tools, new_tools)
+        mock_pipeline.return_value = (sample_tools_for_cli, sample_tools_for_cli)
 
         result = runner.invoke(app, ["scrape", "--source", "docker_hub"])
         assert result.exit_code == 0
         assert "Pipeline complete" in result.stdout
-        assert "Processed 4 tools" in result.stdout
+        assert "Total tools: 4" in result.stdout
 
     @patch("src.cli.run_scrape_pipeline")
     def test_scrape_with_limit(self, mock_pipeline: MagicMock) -> None:
         """Test scrape command with limit."""
-        mock_pipeline.return_value = []
+        # run_scrape_pipeline returns (all_tools, new_tools)
+        mock_pipeline.return_value = ([], [])
 
         result = runner.invoke(app, ["scrape", "--source", "docker_hub", "--limit", "10"])
         assert result.exit_code == 0
@@ -130,7 +132,8 @@ class TestScrapeCLI:
     @patch("src.cli.run_scrape_pipeline")
     def test_scrape_with_force_refresh(self, mock_pipeline: MagicMock) -> None:
         """Test scrape command with force refresh."""
-        mock_pipeline.return_value = []
+        # run_scrape_pipeline returns (all_tools, new_tools)
+        mock_pipeline.return_value = ([], [])
 
         result = runner.invoke(app, ["scrape", "--source", "docker_hub", "--force-refresh"])
         assert result.exit_code == 0

@@ -238,6 +238,7 @@ class ScanOrchestrator:
         new_security.vulnerabilities = scan_result.vulnerabilities
         new_security.trivy_scan_date = scan_result.scan_date
         new_security.scanned_tag = scan_result.scanned_tag
+        new_security.scanned_digest = scan_result.scanned_digest
 
         # Determine status based on vulnerabilities
         if scan_result.vulnerabilities.critical > 0 or scan_result.vulnerabilities.high > 0:

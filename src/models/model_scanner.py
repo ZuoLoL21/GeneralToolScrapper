@@ -17,6 +17,7 @@ class ScanResult:
     scan_duration_seconds: float
     image_ref: str
     scanned_tag: str | None = None
+    scanned_digest: str | None = None
 
 
 @dataclass

@@ -86,6 +86,10 @@ class Security(BaseModel):
         default=None,
         description="Docker image tag that was scanned (e.g., 'latest', 'alpine', '1.0.5')"
     )
+    scanned_digest: str | None = Field(
+        default=None,
+        description="Docker image digest that was scanned (e.g., 'sha256:abc123...')"
+    )
     vulnerabilities: Vulnerabilities = Field(
         default_factory=Vulnerabilities, description="Vulnerability counts by severity"
     )
@@ -210,9 +214,17 @@ class Tool(BaseModel):
 
     # Categorization
     tags: list[str] = Field(default_factory=list, description="Raw tags from source")
-    docker_tags: list[str] = Field(
-        default_factory=list,
-        description="Available Docker image tags (versions) from Docker Hub"
+    selected_image_tag: str | None = Field(
+        default=None,
+        description="Docker image tag selected for scanning (e.g., 'latest', 'alpine', '16.1.12')"
+    )
+    selected_image_digest: str | None = Field(
+        default=None,
+        description="Docker image digest for selected tag (e.g., 'sha256:abc123...')"
+    )
+    digest_fetch_date: datetime | None = Field(
+        default=None,
+        description="When the digest was fetched (for staleness tracking)"
     )
     taxonomy_version: str = Field(default="1.0", description="Categorization version for re-runs")
     primary_category: str | None = Field(

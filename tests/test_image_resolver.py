@@ -1,4 +1,4 @@
-"""Tests for ImageResolver with smart tag selection."""
+"""Tests for ImageResolver with digest-based resolution."""
 
 import pytest
 
@@ -17,42 +17,8 @@ from src.scanner.image_resolver import ImageResolver
 class TestImageResolver:
     """Tests for ImageResolver class."""
 
-    def test_select_tag_with_stable(self) -> None:
-        """Test tag selection prefers 'stable' when available."""
-        resolver = ImageResolver()
-        available_tags = ["latest", "stable", "alpine", "1.0.0"]
-        selected = resolver._select_tag(available_tags, "latest")
-        assert selected == "stable"
-
-    def test_select_tag_with_latest_no_stable(self) -> None:
-        """Test tag selection falls back to 'latest' when 'stable' is unavailable."""
-        resolver = ImageResolver()
-        available_tags = ["latest", "alpine", "1.0.0"]
-        selected = resolver._select_tag(available_tags, "latest")
-        assert selected == "latest"
-
-    def test_select_tag_with_alpine_no_stable_or_latest(self) -> None:
-        """Test tag selection falls back to 'alpine' when 'stable' and 'latest' are unavailable."""
-        resolver = ImageResolver()
-        available_tags = ["alpine", "1.0.0", "16-bullseye"]
-        selected = resolver._select_tag(available_tags, "latest")
-        assert selected == "alpine"
-
-    def test_select_tag_fallback_to_first(self) -> None:
-        """Test tag selection falls back to first available tag when no preferred tags exist."""
-        resolver = ImageResolver()
-        available_tags = ["16-bullseye", "1.0.0", "edge"]
-        selected = resolver._select_tag(available_tags, "latest")
-        assert selected == "16-bullseye"
-
-    def test_select_tag_empty_list_uses_default(self) -> None:
-        """Test tag selection uses default when no tags are available."""
-        resolver = ImageResolver()
-        selected = resolver._select_tag([], "latest")
-        assert selected == "latest"
-
-    def test_resolve_image_ref_official_with_stable(self) -> None:
-        """Test resolving official image with stable tag."""
+    def test_resolve_image_ref_with_digest_official(self) -> None:
+        """Test resolving official image with digest."""
         resolver = ImageResolver()
         tool = Tool(
             id="docker_hub:library/postgres",
@@ -64,37 +30,17 @@ class TestImageResolver:
             maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
             metrics=Metrics(),
             security=Security(),
-            docker_tags=["latest", "stable", "alpine", "16-bullseye"],
+            selected_image_tag="latest",
+            selected_image_digest="sha256:abc123def456",
         )
         result = resolver.resolve_image_ref(tool)
         assert result is not None
-        image_ref, selected_tag = result
-        assert image_ref == "postgres:stable"
-        assert selected_tag == "stable"
+        image_ref, identifier = result
+        assert image_ref == "postgres@sha256:abc123def456"
+        assert identifier == "sha256:abc123def456"
 
-    def test_resolve_image_ref_official_with_alpine(self) -> None:
-        """Test resolving official image falls back to alpine."""
-        resolver = ImageResolver()
-        tool = Tool(
-            id="docker_hub:library/redis",
-            name="redis",
-            source=SourceType.DOCKER_HUB,
-            source_url="https://hub.docker.com/_/redis",
-            description="Redis",
-            identity=Identity(canonical_name="redis"),
-            maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
-            metrics=Metrics(),
-            security=Security(),
-            docker_tags=["alpine", "7.0", "6.2"],
-        )
-        result = resolver.resolve_image_ref(tool)
-        assert result is not None
-        image_ref, selected_tag = result
-        assert image_ref == "redis:alpine"
-        assert selected_tag == "alpine"
-
-    def test_resolve_image_ref_custom_namespace(self) -> None:
-        """Test resolving image from custom namespace."""
+    def test_resolve_image_ref_with_digest_custom_namespace(self) -> None:
+        """Test resolving custom namespace image with digest."""
         resolver = ImageResolver()
         tool = Tool(
             id="docker_hub:bitnami/postgresql",
@@ -106,16 +52,17 @@ class TestImageResolver:
             maintainer=Maintainer(name="Bitnami", type=MaintainerType.COMPANY),
             metrics=Metrics(),
             security=Security(),
-            docker_tags=["latest", "15.2.0", "14.7.0"],
+            selected_image_tag="alpine",
+            selected_image_digest="sha256:xyz789uvw321",
         )
         result = resolver.resolve_image_ref(tool)
         assert result is not None
-        image_ref, selected_tag = result
-        assert image_ref == "bitnami/postgresql:latest"
-        assert selected_tag == "latest"
+        image_ref, identifier = result
+        assert image_ref == "bitnami/postgresql@sha256:xyz789uvw321"
+        assert identifier == "sha256:xyz789uvw321"
 
-    def test_resolve_image_ref_no_docker_tags_uses_default(self) -> None:
-        """Test resolving image without docker_tags uses default tag."""
+    def test_resolve_image_ref_fallback_to_default_tag(self) -> None:
+        """Test fallback to default tag when no digest available."""
         resolver = ImageResolver(default_tag="latest")
         tool = Tool(
             id="docker_hub:library/nginx",
@@ -127,13 +74,36 @@ class TestImageResolver:
             maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
             metrics=Metrics(),
             security=Security(),
-            docker_tags=[],  # Empty list
+            selected_image_tag=None,
+            selected_image_digest=None,
         )
         result = resolver.resolve_image_ref(tool)
         assert result is not None
-        image_ref, selected_tag = result
+        image_ref, identifier = result
         assert image_ref == "nginx:latest"
-        assert selected_tag == "latest"
+        assert identifier == "latest"
+
+    def test_resolve_image_ref_fallback_custom_namespace(self) -> None:
+        """Test fallback to default tag for custom namespace."""
+        resolver = ImageResolver(default_tag="stable")
+        tool = Tool(
+            id="docker_hub:bitnami/redis",
+            name="redis",
+            source=SourceType.DOCKER_HUB,
+            source_url="https://hub.docker.com/r/bitnami/redis",
+            description="Bitnami Redis",
+            identity=Identity(canonical_name="redis"),
+            maintainer=Maintainer(name="Bitnami", type=MaintainerType.COMPANY),
+            metrics=Metrics(),
+            security=Security(),
+            selected_image_tag=None,
+            selected_image_digest=None,
+        )
+        result = resolver.resolve_image_ref(tool)
+        assert result is not None
+        image_ref, identifier = result
+        assert image_ref == "bitnami/redis:stable"
+        assert identifier == "stable"
 
     def test_resolve_image_ref_non_docker_hub_returns_none(self) -> None:
         """Test resolving non-Docker Hub tool returns None."""
@@ -165,35 +135,14 @@ class TestImageResolver:
             maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
             metrics=Metrics(),
             security=Security(),
-            docker_tags=[],  # No tags available
+            selected_image_tag=None,
+            selected_image_digest=None,
         )
         result = resolver.resolve_image_ref(tool)
         assert result is not None
-        image_ref, selected_tag = result
+        image_ref, identifier = result
         assert image_ref == "postgres:16-alpine"
-        assert selected_tag == "16-alpine"
-
-    def test_resolve_image_ref_priority_order(self) -> None:
-        """Test that tag selection follows correct priority order."""
-        resolver = ImageResolver()
-        tool = Tool(
-            id="docker_hub:library/postgres",
-            name="postgres",
-            source=SourceType.DOCKER_HUB,
-            source_url="https://hub.docker.com/_/postgres",
-            description="PostgreSQL",
-            identity=Identity(canonical_name="postgres"),
-            maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
-            metrics=Metrics(),
-            security=Security(),
-            docker_tags=["16-bullseye", "alpine", "edge", "1.0.0"],
-        )
-        result = resolver.resolve_image_ref(tool)
-        assert result is not None
-        image_ref, selected_tag = result
-        # Should select 'alpine' since 'stable' and 'latest' are not available
-        assert image_ref == "postgres:alpine"
-        assert selected_tag == "alpine"
+        assert identifier == "16-alpine"
 
     def test_resolve_image_ref_malformed_tool_id(self) -> None:
         """Test resolver handles malformed tool ID gracefully."""
@@ -208,8 +157,33 @@ class TestImageResolver:
             maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
             metrics=Metrics(),
             security=Security(),
-            docker_tags=["latest"],
+            selected_image_tag="latest",
+            selected_image_digest="sha256:test123",
         )
         result = resolver.resolve_image_ref(tool)
         # Should return None for malformed ID
         assert result is None
+
+    def test_resolve_image_ref_backward_compatibility(self) -> None:
+        """Test backward compatibility with tools that don't have digest."""
+        resolver = ImageResolver()
+        tool = Tool(
+            id="docker_hub:library/alpine",
+            name="alpine",
+            source=SourceType.DOCKER_HUB,
+            source_url="https://hub.docker.com/_/alpine",
+            description="Alpine Linux",
+            identity=Identity(canonical_name="alpine"),
+            maintainer=Maintainer(name="Docker", type=MaintainerType.OFFICIAL),
+            metrics=Metrics(),
+            security=Security(),
+            # Old tools may not have these fields
+            selected_image_tag=None,
+            selected_image_digest=None,
+        )
+        result = resolver.resolve_image_ref(tool)
+        assert result is not None
+        image_ref, identifier = result
+        # Should fall back to default tag
+        assert image_ref == "alpine:latest"
+        assert identifier == "latest"

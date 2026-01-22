@@ -18,71 +18,50 @@ class ImageResolver:
         """
         self.default_tag = default_tag
 
-    def _select_tag(self, available_tags: list[str], default: str) -> str:
-        """Select best tag from pre-fetched options (NO API calls).
+    def resolve_image_ref(self, tool: Tool) -> tuple[str, str | None] | None:
+        """Convert tool to Docker image reference using digest.
 
         Priority:
-        1. stable
-        2. latest
-        3. alpine
-        4. first available
-
-        Args:
-            available_tags: List of available tags from tool.docker_tags
-            default: Default tag to use if no tags available
+        1. Use digest if available (tool.selected_image_digest)
+        2. Fall back to tag-based reference (backward compatibility)
 
         Returns:
-            Selected tag name
+            Tuple of (image_ref, identifier) where:
+            - image_ref: Full reference (e.g., "postgres@sha256:abc..." or "postgres:latest")
+            - identifier: Digest or tag for tracking
+
+            None if not a Docker Hub tool
         """
-        if not available_tags:
-            return default
-
-        # Priority order
-        for preferred in ["stable", "latest", "alpine"]:
-            if preferred in available_tags:
-                return preferred
-
-        # Fall back to first available
-        return available_tags[0]
-
-    def resolve_image_ref(self, tool: Tool) -> tuple[str, str] | None:
-        """Convert tool ID to Docker image reference with smart tag selection.
-
-        Uses tags already fetched during scraping (tool.docker_tags).
-        NO API calls - just in-memory tag selection.
-
-        Examples:
-            docker_hub:library/postgres → ("postgres:stable", "stable")
-            docker_hub:bitnami/postgresql → ("bitnami/postgresql:alpine", "alpine")
-            github:postgres/postgres → None (skip non-Docker)
-
-        Args:
-            tool: Tool to resolve image reference for
-
-        Returns:
-            Tuple of (image_ref, selected_tag) or None if not a Docker Hub tool
-        """
-        # Only handle Docker Hub tools
         if tool.source != SourceType.DOCKER_HUB:
-            logger.debug(f"Skipping non-Docker Hub tool: {tool.id}")
             return None
 
-        # Parse tool ID format: docker_hub:namespace/name
         try:
             _, image_path = tool.id.split(":", 1)
             namespace, name = image_path.split("/", 1)
 
-            # Smart tag selection from pre-fetched tags
-            selected_tag = self._select_tag(tool.docker_tags, self.default_tag)
+            # Priority 1: Use digest if available
+            if tool.selected_image_digest:
+                if namespace == "library":
+                    image_ref = f"{name}@{tool.selected_image_digest}"
+                else:
+                    image_ref = f"{namespace}/{name}@{tool.selected_image_digest}"
 
-            # Special case: library namespace → just image name
+                logger.debug(
+                    f"Resolved {tool.id} → {image_ref} "
+                    f"(tag: {tool.selected_image_tag})"
+                )
+                return (image_ref, tool.selected_image_digest)
+
+            # Fallback: Tag-based reference (backward compatibility)
+            logger.warning(
+                f"No digest for {tool.id}, using default tag: {self.default_tag}"
+            )
             if namespace == "library":
-                image_ref = f"{name}:{selected_tag}"
+                image_ref = f"{name}:{self.default_tag}"
             else:
-                image_ref = f"{namespace}/{name}:{selected_tag}"
+                image_ref = f"{namespace}/{name}:{self.default_tag}"
 
-            logger.debug(f"Resolved {tool.id} → {image_ref} (tag={selected_tag})")
-            return (image_ref, selected_tag)
+            return (image_ref, self.default_tag)
 
         except ValueError as e:
             logger.warning(f"Failed to parse tool ID '{tool.id}': {e}")
