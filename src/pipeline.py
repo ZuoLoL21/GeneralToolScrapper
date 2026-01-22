@@ -175,7 +175,7 @@ def run_scrape_pipeline(
         f"{len(final_tools)} visible"
     )
 
-    return all_tools, final_tools
+    return all_tools, filtered_tools
 
 
 def load_processed_tools(
