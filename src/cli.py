@@ -522,13 +522,23 @@ def scan(
     # Vulnerability summary table (only if we have updated tools)
     if result.updated_tools:
         console.print()
-        vuln_table = Table(title="Vulnerability Summary")
+
+        # Load ALL tools to get comprehensive vulnerability summary
+        all_scanned_tools = file_manager.load_processed()
+
+        # Filter for tools that have been scanned (have scan data)
+        scanned_tools = [
+            tool for tool in all_scanned_tools
+            if tool.security.trivy_scan_date is not None
+        ]
+
+        vuln_table = Table(title=f"Vulnerability Summary (All {len(scanned_tools)} Scanned Tools)")
         vuln_table.add_column("Severity", style="cyan")
         vuln_table.add_column("Count", justify="right")
 
-        # Aggregate vulnerability counts
+        # Aggregate vulnerability counts from ALL scanned tools
         total_vulns = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-        for tool in result.updated_tools:
+        for tool in scanned_tools:
             total_vulns["critical"] += tool.security.vulnerabilities.critical
             total_vulns["high"] += tool.security.vulnerabilities.high
             total_vulns["medium"] += tool.security.vulnerabilities.medium
