@@ -77,26 +77,31 @@ def get_or_create_tag_node(graph, tag: str) -> str:
     return tag
 
 
-def get_or_create_category_node(graph, category: str, subcategory: str | None = None) -> str:
+def get_or_create_category_node(graph, category: str) -> str:
     """Get or create a Category node."""
-    if subcategory:
-        category_full = f"{category}/{subcategory}"
-        query = """
-        MERGE (c:Category {name: $category_full, category: $category, subcategory: $subcategory})
-        RETURN c
-        """
-        graph.query(
-            query,
-            {"category_full": category_full, "category": category, "subcategory": subcategory},
-        )
-    else:
-        category_full = category
-        query = """
-        MERGE (c:Category {name: $category_full, category: $category})
-        RETURN c
-        """
-        graph.query(query, {"category_full": category_full, "category": category})
-    return category_full
+    query = """
+    MERGE (c:Category {name: $category})
+    RETURN c
+    """
+    graph.query(query, {"category": category})
+    return category
+
+
+def get_or_create_subcategory_node(graph, subcategory: str, parent_category: str) -> str:
+    """Get or create a Subcategory node and link it to its parent Category."""
+    # Ensure parent category exists first
+    get_or_create_category_node(graph, parent_category)
+
+    # Create subcategory and relationship in a single atomic query
+    query = """
+    MERGE (c:Category {name: $parent_category})
+    MERGE (sc:Subcategory {name: $subcategory})
+    MERGE (sc)-[:BELONGS_TO]->(c)
+    RETURN sc, c
+    """
+    graph.query(query, {"subcategory": subcategory, "parent_category": parent_category})
+
+    return subcategory
 
 
 def add_to_falkordb(graph, tool_dict):
@@ -238,29 +243,54 @@ def add_to_falkordb(graph, tool_dict):
                     {"tool_id": tool.id, "tag_name": tag},
                 )
 
-    # Create and connect Category nodes
+    # Create and connect Category and Subcategory nodes
     if tool.primary_category:
-        category_name = get_or_create_category_node(
-            graph, tool.primary_category, tool.primary_subcategory
-        )
+        # Create and connect to Category
+        get_or_create_category_node(graph, tool.primary_category)
         graph.query(
             """
             MATCH (t:Tool {id: $tool_id})
             MATCH (c:Category {name: $category_name})
             MERGE (t)-[:IN_CATEGORY {is_primary: true}]->(c)
         """,
-            {"tool_id": tool.id, "category_name": category_name},
+            {"tool_id": tool.id, "category_name": tool.primary_category},
         )
 
+        # Create and connect to Subcategory if exists
+        if tool.primary_subcategory:
+            get_or_create_subcategory_node(graph, tool.primary_subcategory, tool.primary_category)
+            graph.query(
+                """
+                MATCH (t:Tool {id: $tool_id})
+                MATCH (sc:Subcategory {name: $subcategory_name})
+                MERGE (t)-[:IN_SUBCATEGORY {is_primary: true}]->(sc)
+            """,
+                {"tool_id": tool.id, "subcategory_name": tool.primary_subcategory},
+            )
+
     for secondary_category in tool.secondary_categories:
-        get_or_create_category_node(graph, secondary_category)
+        ret = secondary_category.split("/")
+        category = ret[0]
+        subcategory = ret[1]
+
+        get_or_create_category_node(graph, category)
+        get_or_create_subcategory_node(graph, subcategory, category)
+
         graph.query(
             """
             MATCH (t:Tool {id: $tool_id})
             MATCH (c:Category {name: $category_name})
             MERGE (t)-[:IN_CATEGORY {is_primary: false}]->(c)
         """,
-            {"tool_id": tool.id, "category_name": secondary_category},
+            {"tool_id": tool.id, "category_name": category},
+        )
+        graph.query(
+            """
+                MATCH (t:Tool {id: $tool_id})
+                MATCH (sc:Subcategory {name: $subcategory_name})
+                MERGE (t)-[:IN_SUBCATEGORY {is_primary: true}]->(sc)
+            """,
+            {"tool_id": tool.id, "subcategory_name": subcategory},
         )
 
 
@@ -294,7 +324,6 @@ def main():
             import traceback
 
             traceback.print_exc()
-
     print("\n=== Done! ===")
 
 
