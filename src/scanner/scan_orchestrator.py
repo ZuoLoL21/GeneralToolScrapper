@@ -11,6 +11,9 @@ from pathlib import Path
 from src.consts import (
     DEFAULT_DATA_DIR,
     TRIVY_CONCURRENCY,
+    TRIVY_DB_WARMUP,
+    TRIVY_DB_WARMUP_TIMEOUT,
+    TRIVY_SKIP_DB_UPDATE_AFTER_WARMUP,
     TRIVY_UNSCANNABLE_IMAGES,
     TRIVY_VERBOSE_ERRORS,
 )
@@ -166,6 +169,64 @@ class ScanOrchestrator:
         logger.info(f"Filtered {len(needs_scan)} tools needing scan from {len(tools)} total")
         return needs_scan
 
+    async def _warmup_trivy_db(self) -> bool:
+        """Pre-download Trivy vulnerability database to avoid scan timeouts.
+
+        Uses a lightweight image (alpine:latest) to trigger DB download.
+        Has a longer timeout to allow the full 83MB download to complete.
+        Adds delay after scan to ensure cache locks are fully released.
+
+        Returns:
+            True if DB is ready (already exists or successfully downloaded), False otherwise
+        """
+        if not TRIVY_DB_WARMUP:
+            logger.debug("Trivy DB warmup disabled (TRIVY_DB_WARMUP=False)")
+            return True
+
+        logger.warning("⏳ Warming up Trivy vulnerability database...")
+
+        # Clean up any stale locks before warmup
+        self.scanner._cleanup_stale_locks()
+
+        # Use a lightweight image just to trigger DB download
+        warmup_image = "alpine:latest"
+
+        try:
+            # Set a longer timeout for DB download
+            original_timeout = self.scanner.timeout
+            self.scanner.timeout = TRIVY_DB_WARMUP_TIMEOUT
+
+            result = await self.scanner.scan_image(warmup_image)
+
+            # Restore original timeout
+            self.scanner.timeout = original_timeout
+
+            if result.success:
+                logger.warning("✓ Trivy database ready, enabled --skip-db-update for all scans")
+
+                # Wait a bit to ensure cache lock is fully released
+                await asyncio.sleep(2)
+
+                # Clean up any locks from the warmup scan
+                self.scanner._cleanup_stale_locks()
+
+                # Enable skip_db_update for subsequent scans to avoid cache locks
+                if TRIVY_SKIP_DB_UPDATE_AFTER_WARMUP:
+                    self.scanner.skip_db_update = True
+                    logger.warning("  → All subsequent scans will use --skip-db-update (no cache access)")
+
+                return True
+            else:
+                logger.warning(f"⚠️  Trivy database warmup failed: {result.error}")
+                logger.warning("  → Continuing anyway - expect cache lock errors")
+                logger.warning(f"  → Error type: {result.error_type.value if result.error_type else 'unknown'}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"⚠️  Trivy database warmup exception: {e}")
+            logger.warning("  → Continuing anyway - expect cache lock errors")
+            return False
+
     async def scan_batch(
         self,
         tools: list[Tool],
@@ -186,14 +247,18 @@ class ScanOrchestrator:
         Returns:
             ScanBatchResult with aggregated results
         """
+        # Warmup Trivy DB before scanning to avoid timeouts
+        await self._warmup_trivy_db()
+
         start_time = time.time()
 
-        # Create temporary cache directory for this batch
-        cache_dir = self._create_temp_cache_dir()
-
-        # Set cache directory on scanner
-        original_cache_dir = self.scanner.cache_dir
-        self.scanner.cache_dir = cache_dir
+        # DISABLED: Temporary cache isolation causes DB download failures
+        # Each batch would need to download 83MB vulnerability DB independently
+        # Instead, use global Trivy cache (or scanner's configured cache_dir)
+        #
+        # cache_dir = self._create_temp_cache_dir()
+        # original_cache_dir = self.scanner.cache_dir
+        # self.scanner.cache_dir = cache_dir
 
         try:
             semaphore = asyncio.Semaphore(concurrency)
@@ -231,7 +296,9 @@ class ScanOrchestrator:
 
                     image_ref, selected_tag = result_tuple
 
-                    # Scan
+                    # Scan (with small delay to avoid cache lock race conditions)
+                    if completed > 0:
+                        await asyncio.sleep(0.5)  # 500ms delay between scans
                     logger.info(f"Scanning {tool.id} ({image_ref}, tag={selected_tag})...")
                     result = await self.scanner.scan_image(image_ref)
 
@@ -319,9 +386,10 @@ class ScanOrchestrator:
             )
 
         finally:
-            # Restore original cache dir and cleanup
-            self.scanner.cache_dir = original_cache_dir
-            self._cleanup_cache_dir(cache_dir)
+            # DISABLED: Cache isolation cleanup (see above)
+            # self.scanner.cache_dir = original_cache_dir
+            # self._cleanup_cache_dir(cache_dir)
+            pass
 
     def update_tool_security(self, tool: Tool, scan_result) -> Tool:
         """Update tool.security with scan results.

@@ -401,8 +401,12 @@ def scan(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    # Setup Trivy cache directory (keep all files in project)
+    trivy_cache_dir = Path(DEFAULT_DATA_DIR) / "cache" / "trivy"
+    trivy_cache_dir.mkdir(parents=True, exist_ok=True)
+
     # Check Trivy installed
-    scanner = TrivyScanner(timeout=timeout)
+    scanner = TrivyScanner(timeout=timeout, cache_dir=trivy_cache_dir)
     if not scanner.is_trivy_installed():
         console.print("[red]Error: Trivy not installed[/red]")
         console.print(

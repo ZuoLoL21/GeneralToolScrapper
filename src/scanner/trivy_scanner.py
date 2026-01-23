@@ -30,6 +30,7 @@ class TrivyScanner:
         timeout: int = 300,
         try_remote_first: bool = True,
         cache_dir: Path | str | None = None,
+        skip_db_update: bool = False,
     ):
         """Initialize TrivyScanner.
 
@@ -39,11 +40,14 @@ class TrivyScanner:
             try_remote_first: Whether to try remote scan before local (default: True)
             cache_dir: Custom cache directory for Trivy (default: None, uses Trivy's default)
                       Setting this enables cache isolation to prevent lock conflicts
+            skip_db_update: Skip database update during scans (default: False)
+                           Set to True after initial DB download to avoid cache locks
         """
         self.trivy_path = trivy_path
         self.timeout = timeout
         self.try_remote_first = try_remote_first
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.skip_db_update = skip_db_update
 
     def is_trivy_installed(self) -> bool:
         """Check if Trivy is installed and accessible.
@@ -58,34 +62,51 @@ class TrivyScanner:
 
         Removes:
         - Download progress bars (lines with MiB, KiB, %, ETA)
-        - INFO/DEBUG log lines from Trivy
+        - INFO/DEBUG log lines from Trivy (but keeps ERROR/WARN/FATAL)
         - Multiple consecutive newlines
 
         Keeps:
         - Actual error messages
         - Error types (manifest unknown, not found, etc.)
+        - Lines with "error", "failed", "unable to" etc.
+        - At least one non-empty line as fallback
 
         Args:
             error_msg: Raw error message from Trivy stderr
 
         Returns:
-            Cleaned error message
+            Cleaned error message (or empty string if all lines filtered)
         """
         lines = error_msg.split('\n')
         cleaned_lines = []
+        important_lines = []  # Lines with error keywords
 
         for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+
             # Skip download progress lines
             if any(marker in line for marker in ['MiB', 'KiB', ' % ', 'ETA', 'p/s']):
                 continue
-            # Skip INFO/DEBUG log lines (keep WARNING/ERROR)
+
+            # Skip INFO/DEBUG log lines (but keep ERROR/WARN/FATAL)
             if re.search(r'^\d{4}-\d{2}-\d{2}.*\s+(INFO|DEBUG)\s+', line):
-                continue
-            # Skip downloading artifact lines
-            if 'Downloading' in line or 'Need to update DB' in line:
+                # But keep if it contains important error keywords
+                line_lower = line.lower()
+                if any(keyword in line_lower for keyword in ['error', 'failed', 'unable', 'timeout', 'not found', 'unknown', 'unauthorized']):
+                    important_lines.append(line_stripped)
                 continue
 
-            cleaned_lines.append(line.strip())
+            # Skip downloading artifact lines (unless they indicate an error)
+            if ('Downloading' in line or 'Need to update DB' in line) and 'failed' not in line.lower():
+                continue
+
+            cleaned_lines.append(line_stripped)
+
+        # If we filtered everything but found important error lines, use those
+        if not cleaned_lines and important_lines:
+            cleaned_lines = important_lines
 
         # Join and collapse multiple newlines
         cleaned = '\n'.join(cleaned_lines)
@@ -147,33 +168,54 @@ class TrivyScanner:
         """Clean up stale Trivy cache lock files.
 
         Removes lock files older than TRIVY_CACHE_CLEANUP_THRESHOLD_SECONDS.
-        Only works with custom cache_dir (not Trivy's global cache).
+        Prioritizes project-local cache_dir, but also checks global cache as fallback.
         """
-        if not self.cache_dir:
-            logger.debug("No custom cache_dir set, skipping lock cleanup")
-            return
+        cache_paths = []
 
-        try:
-            # Look for lock files in cache directory
-            cache_path = Path(self.cache_dir)
+        # Prioritize custom cache dir if set (project-local)
+        if self.cache_dir:
+            cache_paths.append(Path(self.cache_dir))
+            logger.debug(f"Checking for stale locks in project cache: {self.cache_dir}")
+
+        # Also check Trivy's default cache locations as fallback
+        # (in case Trivy is using global cache for some reason)
+        # Linux/Mac: ~/.cache/trivy/
+        # Windows: %LOCALAPPDATA%\trivy\
+        home = Path.home()
+        if os.name == 'nt':  # Windows
+            global_cache = Path(os.environ.get('LOCALAPPDATA', home / 'AppData' / 'Local')) / 'trivy'
+        else:  # Linux/Mac
+            global_cache = home / '.cache' / 'trivy'
+
+        if global_cache.exists():
+            cache_paths.append(global_cache)
+            logger.debug(f"Also checking global Trivy cache: {global_cache}")
+
+        for cache_path in cache_paths:
             if not cache_path.exists():
-                return
+                continue
 
-            lock_files = list(cache_path.rglob("*.lock"))
-            now = time.time()
+            try:
+                lock_files = list(cache_path.rglob("*.lock"))
+                now = time.time()
 
-            for lock_file in lock_files:
-                try:
-                    # Check file age
-                    file_age = now - lock_file.stat().st_mtime
-                    if file_age > TRIVY_CACHE_CLEANUP_THRESHOLD_SECONDS:
-                        logger.info(f"Removing stale lock file: {lock_file} (age: {file_age:.0f}s)")
-                        lock_file.unlink()
-                except Exception as e:
-                    logger.warning(f"Failed to remove lock file {lock_file}: {e}")
+                if lock_files:
+                    logger.debug(f"Found {len(lock_files)} lock file(s) in {cache_path}")
 
-        except Exception as e:
-            logger.warning(f"Failed to cleanup stale locks: {e}")
+                for lock_file in lock_files:
+                    try:
+                        # Check file age
+                        file_age = now - lock_file.stat().st_mtime
+                        if file_age > TRIVY_CACHE_CLEANUP_THRESHOLD_SECONDS:
+                            logger.info(f"Removing stale lock file: {lock_file} (age: {file_age:.0f}s)")
+                            lock_file.unlink()
+                        else:
+                            logger.debug(f"Lock file still fresh: {lock_file} (age: {file_age:.0f}s)")
+                    except Exception as e:
+                        logger.debug(f"Failed to remove lock file {lock_file}: {e}")
+
+            except Exception as e:
+                logger.debug(f"Failed to cleanup stale locks in {cache_path}: {e}")
 
     async def _retry_with_backoff(
         self,
@@ -279,8 +321,19 @@ class TrivyScanner:
 
         logger.info(f"Scanning image: {image_ref}")
 
-        # Cleanup stale locks before starting
+        # Aggressively cleanup stale locks before EVERY scan
+        # (Trivy cache locks persist even with --skip-db-update)
         self._cleanup_stale_locks()
+
+        # Additional delay to ensure previous scan's lock is released
+        if hasattr(self, '_last_scan_time'):
+            time_since_last = time.time() - self._last_scan_time
+            if time_since_last < 1.0:  # If less than 1 second since last scan
+                wait_time = 1.0 - time_since_last
+                logger.debug(f"Waiting {wait_time:.2f}s for cache lock release")
+                await asyncio.sleep(wait_time)
+
+        self._last_scan_time = time.time()
 
         # Try remote scan first if enabled (with retry)
         if use_remote:
@@ -342,10 +395,18 @@ class TrivyScanner:
                 "CRITICAL,HIGH,MEDIUM,LOW",
                 "--scanners",
                 "vuln",
-                image_ref,
             ]
 
-            logger.debug(f"Running: {' '.join(cmd)}")
+            # Add --skip-db-update if enabled (avoids cache locks)
+            if self.skip_db_update:
+                cmd.append("--skip-db-update")
+
+            cmd.append(image_ref)
+
+            if self.skip_db_update:
+                logger.debug(f"Running: {' '.join(cmd)} [--skip-db-update ENABLED]")
+            else:
+                logger.debug(f"Running: {' '.join(cmd)}")
 
             # Set custom cache dir if configured
             env = os.environ.copy()
@@ -383,11 +444,13 @@ class TrivyScanner:
                 error_type = self._classify_error(error_msg, process.returncode)
                 logger.debug(f"Remote scan failed ({error_type.value}): {error_msg}")
                 cleaned_msg = self._clean_error_message(error_msg)
+                # Fallback to original if cleaning removed everything
+                final_msg = cleaned_msg if cleaned_msg else error_msg
                 return ScanResult(
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Trivy error (code {process.returncode}): {cleaned_msg[:500]}",
+                    error=f"Trivy error (code {process.returncode}): {final_msg[:500]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                     error_type=error_type,
@@ -462,11 +525,13 @@ class TrivyScanner:
                 error_type = self._classify_error(error_msg, pull_process.returncode)
                 logger.debug(f"Docker pull failed ({error_type.value}): {error_msg}")
                 cleaned_msg = self._clean_error_message(error_msg)
+                # Fallback to original if cleaning removed everything
+                final_msg = cleaned_msg if cleaned_msg else error_msg
                 return ScanResult(
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Docker pull error: {cleaned_msg[:500]}",
+                    error=f"Docker pull error: {final_msg[:500]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                     error_type=ScanErrorType.DOCKER_PULL_FAILED,
@@ -480,10 +545,18 @@ class TrivyScanner:
                 "json",
                 "--severity",
                 "CRITICAL,HIGH,MEDIUM,LOW",
-                image_ref,
             ]
 
-            logger.debug(f"Running: {' '.join(cmd)}")
+            # Add --skip-db-update if enabled (avoids cache locks)
+            if self.skip_db_update:
+                cmd.append("--skip-db-update")
+
+            cmd.append(image_ref)
+
+            if self.skip_db_update:
+                logger.debug(f"Running: {' '.join(cmd)} [--skip-db-update ENABLED]")
+            else:
+                logger.debug(f"Running: {' '.join(cmd)}")
 
             # Set custom cache dir if configured
             env = os.environ.copy()
@@ -521,11 +594,13 @@ class TrivyScanner:
                 error_type = self._classify_error(error_msg, process.returncode)
                 logger.debug(f"Local scan failed ({error_type.value}): {error_msg}")
                 cleaned_msg = self._clean_error_message(error_msg)
+                # Fallback to original if cleaning removed everything
+                final_msg = cleaned_msg if cleaned_msg else error_msg
                 return ScanResult(
                     success=False,
                     vulnerabilities=None,
                     scan_date=datetime.now(UTC),
-                    error=f"Trivy error (code {process.returncode}): {cleaned_msg[:500]}",
+                    error=f"Trivy error (code {process.returncode}): {final_msg[:500]}",
                     scan_duration_seconds=0,
                     image_ref=image_ref,
                     error_type=error_type,

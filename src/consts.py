@@ -30,7 +30,6 @@ DOCKER_HUB_ALL_NAMESPACES = [
     "centos",  # CentOS official
     "debian",  # Debian official
     "oraclelinux",  # Oracle Linux official
-
     # Databases
     "mysql",  # MySQL official
     "postgres",  # PostgreSQL official
@@ -42,14 +41,12 @@ DOCKER_HUB_ALL_NAMESPACES = [
     "couchbase",  # Couchbase official
     "influxdb",  # InfluxDB official
     "neo4j",  # Neo4j official
-
     # Web servers and proxies
     "nginx",  # NGINX official
     "httpd",  # Apache HTTP Server official
     "traefik",  # Traefik official
     "haproxy",  # HAProxy official
     "caddy",  # Caddy official
-
     # Programming languages
     "node",  # Node.js official
     "python",  # Python official
@@ -59,14 +56,12 @@ DOCKER_HUB_ALL_NAMESPACES = [
     "php",  # PHP official
     "rust",  # Rust official
     "dotnet",  # .NET official
-
     # DevOps and CI/CD
     "jenkins",  # Jenkins official
     "gitlab",  # GitLab official
     "sonarqube",  # SonarQube official
     "nexus3",  # Sonatype Nexus official
     "artifactory",  # JFrog Artifactory (may be jfrog namespace)
-
     # Monitoring and observability
     "grafana",  # Grafana official
     "prometheus",  # Prometheus official
@@ -74,24 +69,20 @@ DOCKER_HUB_ALL_NAMESPACES = [
     "logstash",  # Logstash official
     "telegraf",  # Telegraf official
     "fluentd",  # Fluentd official
-
     # Message queues and streaming
     "rabbitmq",  # RabbitMQ official
     "kafka",  # Apache Kafka official
     "nats",  # NATS official
     "memcached",  # Memcached official
-
     # Security and secrets management
     "vault",  # HashiCorp Vault official
     "consul",  # HashiCorp Consul official
-
     # Content management and applications
     "wordpress",  # WordPress official
     "ghost",  # Ghost official
     "drupal",  # Drupal official
     "joomla",  # Joomla official
     "nextcloud",  # Nextcloud official
-
     # Other popular namespaces
     "portainer",  # Portainer
     "rancher",  # Rancher
@@ -112,12 +103,17 @@ TRIVY_DEFAULT_TAG = "latest"
 TRIVY_STALENESS_DAYS = 7  # Re-scan after 7 days
 TRIVY_CONCURRENCY = 1  # Max concurrent scans (set to 1 to avoid cache lock conflicts)
 TRIVY_FAILED_SCAN_TTL = 3600  # 1 hour cache for failed scans
+TRIVY_DB_WARMUP = True  # Pre-download vulnerability DB before scanning to avoid timeouts
+TRIVY_DB_WARMUP_TIMEOUT = 600  # Timeout for DB warmup (10 minutes)
+TRIVY_SKIP_DB_UPDATE_AFTER_WARMUP = True  # Skip DB updates after warmup to avoid cache locks
+TRIVY_CACHE_DIR = DEFAULT_DATA_DIR / "cache" / "trivy"  # Project-local Trivy cache directory
 
 # Trivy cache isolation and error handling
 TRIVY_CACHE_CLEANUP_THRESHOLD_SECONDS = 600  # 10 minutes - consider locks stale after this
 TRIVY_MAX_CACHE_LOCK_RETRIES = 4  # Maximum retries for cache lock errors
 TRIVY_RETRY_BASE_DELAY = 1.0  # Base delay in seconds for exponential backoff
-TRIVY_VERBOSE_ERRORS = False  # Set to True to see full Trivy stderr output in logs
+TRIVY_VERBOSE_ERRORS = True  # Set to True to see full Trivy stderr output in logs
+TRIVY_USE_ISOLATED_CACHE = False  # DEPRECATED: Causes DB download failures, use global cache instead
 
 # Manifest validation and unscannable images
 DOCKER_MANIFEST_VALIDATION_ENABLED = True  # Pre-validate images before scanning
