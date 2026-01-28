@@ -17,7 +17,9 @@ uv sync
 
 # Configure API keys
 cp .env.example .env
-# Edit .env with your API keys
+
+# Install cli tool
+pip install -e .
 
 # Run (MVP mode - no LLM/Trivy required)
 gts --help
